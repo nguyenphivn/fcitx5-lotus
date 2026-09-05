@@ -25,22 +25,25 @@
  *      commits and identical preedit — no state leaks between compositions.
  *
  * What is proven, and what is not:
- * P2 has a positive control. Making the preedit render its text twice turns
- * sequence #0 red with "P2 preedit has 2 characters after only 1 keys". So this
- * property really does observe the engine, not just itself.
+ * Four of the five properties have a positive control: a deliberate defect was
+ * injected, the expected failure was written down first, and the run matched it.
+ * Each mutation was reverted and the source verified back to its original hash.
  *
- * P1 does NOT have one, and the attempt to build it is worth recording:
- * appending a stray 0xC3 byte in the preedit path does not reach P1 at all,
- * because fcitx::Text::append throws on invalid UTF-8 first and the process
- * aborts. Invalid UTF-8 therefore cannot reach a client through this path, and
- * P1 is a backstop for future paths rather than a guard with a demonstrated
- * failure mode.
+ *   P2  render the preedit twice
+ *       -> sequence #0, "P2 preedit has 2 characters after only 1 keys (preedit=cc)"
+ *   P3  call RemoveLastChar twice in the Bamboo backspace path
+ *       -> sequence #0, "preedit was 'tzưdoxf' before k+BackSpace and 'tzưdox' after"
+ *   P4  drop inputPanel().reset() in LotusEngine::deactivate
+ *       -> sequence #0, "P4 client preedit still holds 'tzưdoxf' after deactivate"
+ *   P5  uppercase any preedit string that was rendered once before
+ *       -> sequence #0, "replay yielded preedit=TZưDOXF" against "tzưdoxf"
  *
- * P3, P4 and P5 have no positive control yet. P3 would need a mutation inside
- * the Bamboo Go core, since add and delete both render through the same C++
- * code here and a C++ mutation cannot make them disagree. P5 would need an
- * injected static. Until those exist, their green result is weaker evidence
- * than P2's.
+ * P1 has no positive control, and the failed attempt is worth recording:
+ * appending a stray 0xC3 byte in the preedit path never reaches P1, because
+ * fcitx::Text::append throws on invalid UTF-8 first and the process aborts.
+ * Invalid UTF-8 therefore cannot reach a client through this path at all, and
+ * P1 stands as a backstop for future paths rather than a guard with a
+ * demonstrated failure mode.
  *
  * Determinism:
  * The generator uses a fixed seed, so a failure here reproduces exactly. The
