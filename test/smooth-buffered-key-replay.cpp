@@ -5,6 +5,7 @@
 
 #include <cerrno>
 #include <cstddef>
+#include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <memory>
@@ -133,6 +134,12 @@ namespace {
 } // namespace
 
 int main() {
+    // Own a private socket name. Without this the listener below binds the same
+    // abstract name a running fcitx5-lotus-server already holds, so the test
+    // only passes on machines where the product is not running.
+    const std::string socketNamespace = "test-" + std::to_string(getpid());
+    setenv("LOTUS_SOCKET_NAMESPACE", socketNamespace.c_str(), 1);
+
     configureTestPaths("fcitx5-lotus-smooth-buffered-key-replay");
     TestInstance       testInstance;
     fcitx::LotusEngine engine(&testInstance.instance);

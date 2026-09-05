@@ -9,6 +9,7 @@
 #include "lotus-config.h"
 
 #include <cstddef>
+#include <cstdlib>
 #include <fcitx-utils/utf8.h>
 #include <pwd.h>
 #include <unistd.h>
@@ -49,6 +50,13 @@ std::string buildSocketPath(const char* base_path_suffix) {
     path += username;
     path += '-';
     path += base_path_suffix;
+    // Optional namespace so a test can own a private socket name instead of
+    // fighting the running fcitx5-lotus-server for the well-known one.
+    // Unset in production, where the addon and the server must agree on the name.
+    if (const char* ns = std::getenv("LOTUS_SOCKET_NAMESPACE"); ns != nullptr && *ns != '\0') {
+        path += '-';
+        path += ns;
+    }
     const size_t max_socket_path_length = UNIX_PATH_MAX - 1;
     path.resize(std::min(path.length(), max_socket_path_length));
     return path;
