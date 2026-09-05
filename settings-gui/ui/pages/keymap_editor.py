@@ -366,11 +366,14 @@ class KeymapEditorPage(BaseEditorPage):
     def save_data(self):
         """Saves current table via DBus to C++ Engine."""
         # Save toggle
+        saved = True
         config_data = self.dbus.get_config()
         if config_data:
             values = config_data.get("values", {})
             values["EnableCustomKeymap"] = "True" if self.cb_enable.isChecked() else "False"
-            self.dbus.set_config(values)
+            saved = self.dbus.set_config(values)
+        else:
+            saved = False
 
         data = []
         for row in range(self.table.rowCount()):
@@ -380,8 +383,15 @@ class KeymapEditorPage(BaseEditorPage):
                 continue
             data.append({"Key": key_item.text(), "Value": combo_widget.currentData()})
 
-        self.dbus.set_sub_config_list("custom_keymap", "CustomKeymap", data)
+        saved = (
+            self.dbus.set_sub_config_list("custom_keymap", "CustomKeymap", data)
+            and saved
+        )
+        if not saved:
+            return False
+
         self.initial_state = self._get_current_state()
+        return True
 
     def on_search_changed(self):
         """Filters the table rows based on the search input."""

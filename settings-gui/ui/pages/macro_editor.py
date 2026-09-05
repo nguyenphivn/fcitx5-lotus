@@ -353,6 +353,7 @@ class MacroEditorPage(BaseEditorPage):
 
     def save_data(self):
         # Save global macro settings via DBus
+        saved = True
         config_data = self.dbus.get_config()
         if config_data:
             values = config_data.get("values", {})
@@ -366,7 +367,9 @@ class MacroEditorPage(BaseEditorPage):
             values["MacroSkipTriggerModifier"] = self.cb_skip_modifier.currentData()
             values["TimeFormat"] = self.input_time_format.currentText()
             values["DateFormat"] = self.input_date_format.currentText()
-            self.dbus.set_config(values)
+            saved = self.dbus.set_config(values)
+        else:
+            saved = False
 
         data = []
         for row in range(self.table.rowCount()):
@@ -378,8 +381,12 @@ class MacroEditorPage(BaseEditorPage):
                 {"Key": key_item.text(), "Value": val_item.text() if val_item else ""}
             )
 
-        self.dbus.set_sub_config_list("lotus-macro", "Macro", data)
+        saved = self.dbus.set_sub_config_list("lotus-macro", "Macro", data) and saved
+        if not saved:
+            return False
+
         self.initial_state = self._get_current_state()
+        return True
 
     def _find_row_by_key(self, key: str) -> int | None:
         """Finds row index for a given key. Returns None if not found."""
