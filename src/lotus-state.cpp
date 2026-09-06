@@ -442,6 +442,48 @@ namespace fcitx {
         ic_->updateUserInterface(UserInterfaceComponent::InputPanel);
     }
 
+    void LotusState::henGio(int msec, std::function<void()> viec) {
+        auto& eventLoop = engine_->instance()->eventLoop();
+        if (msec < 0)
+            msec = 0;
+        hen_gio_ = eventLoop.addTimeEvent(
+            CLOCK_MONOTONIC, now(CLOCK_MONOTONIC) + static_cast<uint64_t>(msec) * 1000ULL, 0,
+            [this, icRef = ic_->watch(), viec = std::move(viec)](EventSourceTime*, uint64_t) {
+                // `LotusState` là thuộc tính của chính input context này: ic còn sống thì
+                // `this` còn sống. ic chết thì bỏ việc, không đụng vào gì nữa.
+                if (icRef.get() != nullptr)
+                    viec();
+                return false;
+            });
+    }
+
+    void LotusState::huyHenGio() {
+        hen_gio_.reset();
+        dang_cho_giao_ = false;
+    }
+
+    void LotusState::giaoChuSauKhiXoa(int lanThu) {
+        // Con trỏ đã về đúng chỗ chưa? Chưa thì hẹn lại 2 ms, tối đa 3 lần — đúng vòng
+        // thử lại cũ, chỉ khác là không chặn vòng lặp sự kiện trong lúc chờ.
+        const auto& surr = ic_->surroundingText();
+        const bool  dung = surr.isValid() && surr.cursor() == realtextLen.load(std::memory_order_acquire);
+        if (!dung && lanThu < 3) {
+            henGio(2, [this, lanThu]() { giaoChuSauKhiXoa(lanThu + 1); });
+            return;
+        }
+        if (dung && lanThu == 0) {
+            LOTUS_INFO("Skip retry");
+        }
+        ic_->commitString(pending_commit_string_);
+        LOTUS_INFO("Commit: " + pending_commit_string_);
+        expected_backspaces_     = 0;
+        current_backspace_count_ = 0;
+        pending_commit_string_.clear();
+        dang_cho_giao_ = false;
+        is_deleting_.store(false);
+        replayBufferedKeys();
+    }
+
     bool LotusState::handleUInputKeyPress(KeyEvent& event, KeySym currentSym, int sleepTime) {
         if (!is_deleting_.load()) {
             return false;
@@ -451,30 +493,11 @@ namespace fcitx {
             if (current_backspace_count_ < expected_backspaces_) {
                 return false; // Allow intermediate backspaces to reach the app to clear autofill/old text.
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds(sleepTime * (expected_backspaces_ - 1)));
-            // Validate surr cursor pos should match realtextLen after all BS applied
-            const auto& surr = ic_->surroundingText();
-            if (surr.isValid() && surr.cursor() == realtextLen.load(std::memory_order_acquire)) {
-                LOTUS_INFO("Skip retry");
-            } else {
-                // Retry x3 (2 ms each), khi can (chromium,electron,...)
-                for (int retry = 0; retry < 3; ++retry) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(2));
-                    const auto& surr2 = ic_->surroundingText();
-                    if (surr2.isValid() && surr2.cursor() == realtextLen.load(std::memory_order_acquire)) {
-                        break;
-                    }
-                }
-            }
-            ic_->commitString(pending_commit_string_);
-            LOTUS_INFO("Commit: " + pending_commit_string_);
-            expected_backspaces_     = 0;
-            current_backspace_count_ = 0;
-            pending_commit_string_.clear();
-
-            event.filterAndAccept(); // Filter out the final trigger backspace.
-            is_deleting_.store(false);
-            replayBufferedKeys();
+            // Phím xoá lùi CUỐI CÙNG: chặn NGAY ở đây — fcitx5 cần câu trả lời tức thì,
+            // không hoãn được. Nhưng việc GÕ CHỮ MỚI thì hoãn được, và đó mới là chỗ ngủ.
+            event.filterAndAccept();
+            dang_cho_giao_ = true;
+            henGio(sleepTime * (expected_backspaces_ - 1), [this]() { giaoChuSauKhiXoa(0); });
             return true;
         }
         return false;
@@ -1077,6 +1100,19 @@ namespace fcitx {
         }
 
         if (is_deleting_.load(std::memory_order_acquire)) {
+            if (dang_cho_giao_) {
+                // Đã gửi xong xoá lùi, đang chờ tới giờ giao chữ. Trước đây khoảng chờ này
+                // là `sleep_for` nên vòng lặp sự kiện đứng im và KHÔNG phím nào tới được.
+                // Giờ vòng lặp còn sống nên phím tới THẬT — phải cất vào hàng đợi, đừng xử
+                // lý: một phím xoá lùi của người dùng lọt vào đây sẽ kích lượt giao chữ
+                // thứ hai và gõ lặp chữ.
+                std::string keyUtf8Cho = Key::keySymToUTF8(currentSym);
+                if (!keyUtf8Cho.empty() && buffered_keys_.size() < MAX_BUFFERED_KEYS) {
+                    buffered_keys_.push_back({.sym = currentSym, .state = keyEvent.rawKey().states()});
+                }
+                keyEvent.filterAndAccept();
+                return;
+            }
             if (isBackspace(currentSym)) {
                 if (realtextLen.load(std::memory_order_acquire) > 0)
                     realtextLen.fetch_sub(1, std::memory_order_acq_rel);
