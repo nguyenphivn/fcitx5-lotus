@@ -15,6 +15,7 @@
 #include "lotus-utils.h"
 #include "lotus-icon-resolver.h"
 #include "ack-apps.h"
+#include <chrono>
 #include <optional>
 #include <sys/socket.h>
 #include <utility>
@@ -495,6 +496,21 @@ namespace fcitx {
     }
 
     void LotusEngine::keyEvent(const InputMethodEntry& /*entry*/, KeyEvent& keyEvent) {
+        // ── ĐO TẠM, KHÔNG gửi lên thượng nguồn ───────────────────────────────────────
+        // Ghi thời gian MỘT lần keyEvent chiếm vòng lặp sự kiện của fcitx5. Cả 6 chỗ
+        // `sleep_for` trong lotus-state.cpp đều nằm trong đường này, nên số ở đây chính
+        // là thời gian fcitx5 bị chặn. Bọc bằng RAII vì keyEvent có rất nhiều đường
+        // return — đặt log ở cuối hàm sẽ bỏ sót phần lớn.
+        struct DoThoiGian {
+            std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
+            ~DoThoiGian() {
+                const auto us = std::chrono::duration_cast<std::chrono::microseconds>(
+                                    std::chrono::steady_clock::now() - t0)
+                                    .count();
+                LOTUS_INFO("KEYEVENT_US " + std::to_string(us));
+            }
+        } _do_thoi_gian;
+
         auto* ic = keyEvent.inputContext();
 
         if (isSelectingAppMode_ && g_mouse_clicked.load(std::memory_order_acquire)) {
