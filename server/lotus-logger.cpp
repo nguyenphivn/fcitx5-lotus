@@ -55,9 +55,13 @@ void LotusLogger::log(LogLevel level, const std::string& message) {
     std::string                 entry = getTimestamp() + " [" + levelToString(level) + "] " + message + "\n";
 
     file_ << entry;
-    if (level >= LogLevel::WARN) {
-        file_.flush();
-    }
+    // Flush every line, not just warnings. This log is the only place
+    // "Target user", "Device added" and "Fcitx5 connected" are written, and
+    // they are all INFO, so buffering them leaves the file frozen at the last
+    // warning while the service keeps running. A reader cannot tell a stale
+    // log from a dead server. Volume is a few lines per minute, so the cost of
+    // flushing each one is not measurable.
+    file_.flush();
 }
 
 std::string LotusLogger::getTimestamp() {
