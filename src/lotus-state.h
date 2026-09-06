@@ -20,8 +20,12 @@
 #include "lotus-utils.h"
 
 #include <cstddef>
+#include <fcitx-utils/event.h>
 #include <fcitx-utils/misc.h>
 #include <fcitx/inputcontext.h>
+
+#include <functional>
+#include <memory>
 
 struct EmojiEntry;
 
@@ -107,6 +111,9 @@ namespace fcitx {
         bool                    wa_chromium_flag       = false;
         bool                    tracking_modifier_tap_ = false; ///< Selected modifier held, waiting for consecutive keyup
         bool                    macro_skip_            = false; ///< Macro disabled for the current word
+
+        std::unique_ptr<EventSourceTime> hen_gio_;              ///< Hẹn đang chờ, thay cho sleep_for
+        bool                             dang_cho_giao_ = false; ///< Đã gửi xong xoá lùi, đang chờ tới giờ giao chữ
 
         /**
          * @brief Connects to the uinput server.
@@ -228,6 +235,30 @@ namespace fcitx {
          * replacement completes.
          */
         void replayBufferedKeys();
+
+        /**
+         * @brief Hẹn giờ thay cho `std::this_thread::sleep_for`.
+         *
+         * fcitx5 chỉ có MỘT vòng lặp sự kiện cho cả máy. Ngủ trong `keyEvent` là bắt
+         * mọi cửa sổ đứng im, không riêng ô đang gõ. Hàm này trả vòng lặp về ngay và
+         * chạy `viec` khi tới giờ.
+         *
+         * Callback chỉ chạy nếu input context còn sống (bắt qua `ic_->watch()`), nên
+         * `this` không bao giờ treo: `LotusState` là thuộc tính của chính input context đó.
+         *
+         * @param msec Chờ bao nhiêu mili-giây.
+         * @param viec Việc làm khi tới giờ.
+         */
+        void henGio(int msec, std::function<void()> viec);
+
+        /// Huỷ hẹn đang chờ (mất focus, đặt lại trạng thái).
+        void huyHenGio();
+
+        /**
+         * @brief Giao chữ mới sau khi các phím xoá lùi đã tới app.
+         * @param lanThu Lần thử thứ mấy; con trỏ chưa về đúng chỗ thì hẹn lại, tối đa 3 lần.
+         */
+        void giaoChuSauKhiXoa(int lanThu);
 
         /**
          * @brief Checks if the key symbol matches the configured macro-skip modifier.
