@@ -112,7 +112,8 @@ namespace fcitx {
         bool                    tracking_modifier_tap_ = false; ///< Selected modifier held, waiting for consecutive keyup
         bool                    macro_skip_            = false; ///< Macro disabled for the current word
 
-        std::unique_ptr<EventSourceTime> hen_gio_;              ///< Hẹn đang chờ, thay cho sleep_for
+        std::unique_ptr<EventSourceTime> hen_gio_;               ///< Hẹn đang chờ, thay cho sleep_for
+        std::unique_ptr<EventSourceTime> hen_gio_cu_;            ///< Hẹn của lượt trước, buông chậm một nhịp
         bool                             dang_cho_giao_ = false; ///< Đã gửi xong xoá lùi, đang chờ tới giờ giao chữ
 
         /**
@@ -249,16 +250,13 @@ namespace fcitx {
          * @param msec Chờ bao nhiêu mili-giây.
          * @param viec Việc làm khi tới giờ.
          */
-        void henGio(int msec, std::function<void()> viec);
+        void batDauChoGiao(int msec);
 
         /// Huỷ hẹn đang chờ (mất focus, đặt lại trạng thái).
         void huyHenGio();
 
-        /**
-         * @brief Giao chữ mới sau khi các phím xoá lùi đã tới app.
-         * @param lanThu Lần thử thứ mấy; con trỏ chưa về đúng chỗ thì hẹn lại, tối đa 3 lần.
-         */
-        void giaoChuSauKhiXoa(int lanThu);
+        /// Giao chữ mới ngay: commit, dọn trạng thái, phát lại phím đã cất.
+        void giaoChuNgay();
 
         /**
          * @brief Checks if the key symbol matches the configured macro-skip modifier.

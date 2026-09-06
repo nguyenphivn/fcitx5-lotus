@@ -442,38 +442,38 @@ namespace fcitx {
         ic_->updateUserInterface(UserInterfaceComponent::InputPanel);
     }
 
-    void LotusState::henGio(int msec, std::function<void()> viec) {
-        auto& eventLoop = engine_->instance()->eventLoop();
+    void LotusState::batDauChoGiao(int msec) {
+        dang_cho_giao_ = true;
         if (msec < 0)
             msec = 0;
+        auto& eventLoop = engine_->instance()->eventLoop();
+        // Đừng xoá hẹn cũ NGAY: có thể ta đang đứng trong callback của nó (replayBufferedKeys
+        // gọi tiếp một lượt thay chữ mới). `unique_ptr` gán đè là xoá nguồn đang chạy.
+        hen_gio_cu_ = std::move(hen_gio_);
+        // Tham số thứ ba là ĐỘ CHÍNH XÁC (micro-giây). Truyền 0 nghĩa là "mặc định", mà mặc
+        // định là 250 ms — hẹn 2 ms nhưng nổ sau tới 250 ms, gom nhóm cho tiết kiệm điện.
+        // Đo 06/09/2026 thấy các lần giao chữ rơi đúng vào lưới cách nhau 250 ms.
         hen_gio_ = eventLoop.addTimeEvent(
-            CLOCK_MONOTONIC, now(CLOCK_MONOTONIC) + static_cast<uint64_t>(msec) * 1000ULL, 0,
-            [this, icRef = ic_->watch(), viec = std::move(viec)](EventSourceTime*, uint64_t) {
+            CLOCK_MONOTONIC, now(CLOCK_MONOTONIC) + static_cast<uint64_t>(msec) * 1000ULL, 100,
+            [this, icRef = ic_->watch()](EventSourceTime*, uint64_t) {
                 // `LotusState` là thuộc tính của chính input context này: ic còn sống thì
-                // `this` còn sống. ic chết thì bỏ việc, không đụng vào gì nữa.
-                if (icRef.get() != nullptr)
-                    viec();
+                // `this` còn sống. ic chết thì bỏ việc.
+                if (icRef.get() == nullptr) {
+                    dang_cho_giao_ = false;
+                    return false;
+                }
+                giaoChuNgay();
                 return false;
             });
     }
 
     void LotusState::huyHenGio() {
         hen_gio_.reset();
+        hen_gio_cu_.reset();
         dang_cho_giao_ = false;
     }
 
-    void LotusState::giaoChuSauKhiXoa(int lanThu) {
-        // Con trỏ đã về đúng chỗ chưa? Chưa thì hẹn lại 2 ms, tối đa 3 lần — đúng vòng
-        // thử lại cũ, chỉ khác là không chặn vòng lặp sự kiện trong lúc chờ.
-        const auto& surr = ic_->surroundingText();
-        const bool  dung = surr.isValid() && surr.cursor() == realtextLen.load(std::memory_order_acquire);
-        if (!dung && lanThu < 3) {
-            henGio(2, [this, lanThu]() { giaoChuSauKhiXoa(lanThu + 1); });
-            return;
-        }
-        if (dung && lanThu == 0) {
-            LOTUS_INFO("Skip retry");
-        }
+    void LotusState::giaoChuNgay() {
         ic_->commitString(pending_commit_string_);
         LOTUS_INFO("Commit: " + pending_commit_string_);
         expected_backspaces_     = 0;
@@ -496,8 +496,20 @@ namespace fcitx {
             // Phím xoá lùi CUỐI CÙNG: chặn NGAY ở đây — fcitx5 cần câu trả lời tức thì,
             // không hoãn được. Nhưng việc GÕ CHỮ MỚI thì hoãn được, và đó mới là chỗ ngủ.
             event.filterAndAccept();
-            dang_cho_giao_ = true;
-            henGio(sleepTime * (expected_backspaces_ - 1), [this]() { giaoChuSauKhiXoa(0); });
+            // Quyết định "có cần thử lại không" NGAY BÂY GIỜ, không phải trong lúc chờ.
+            // Bản cũ ngủ chặn nên fcitx5 không xử lý gì; mọi lần đọc văn bản xung quanh
+            // trong lúc ngủ đều ra ĐÚNG GIÁ TRỊ NÀY. Đọc lại trong callback là đọc dữ liệu
+            // MỚI mà bản cũ không bao giờ thấy — và với Firefox (đẩy văn bản xung quanh
+            // trễ 58–184 ms) thì bản cập nhật muộn lọt vào giữa lúc chờ làm điều kiện
+            // thoát sớm ăn nhầm, gõ sai dấu. Đo 06/09/2026: 3 ô Firefox+SurroundingText.
+            const auto& surr = ic_->surroundingText();
+            const bool  dung = surr.isValid() && surr.cursor() == realtextLen.load(std::memory_order_acquire);
+            if (dung) {
+                LOTUS_INFO("Skip retry");
+            }
+            // Không đúng thì bản cũ chạy trọn 3 vòng thử lại 2 ms — chạy trọn thật, vì
+            // giá trị nó so sánh không thể đổi trong lúc ngủ. Cộng thẳng 6 ms cho khớp.
+            batDauChoGiao(sleepTime * (expected_backspaces_ - 1) + (dung ? 0 : 6));
             return true;
         }
         return false;
@@ -1033,7 +1045,13 @@ namespace fcitx {
             LOTUS_WARN("Cannot connect to uinput server, reconnecting....");
             connect_uinput_server();
         }
-        if (current_backspace_count_ >= expected_backspaces_ && is_deleting_.load()) {
+        // Đoạn cứu kẹt: đã nhận đủ phím xoá lùi mà cờ vẫn bật thì coi như hỏng, dọn sạch.
+        // Với `sleep_for` thì trạng thái đó không bao giờ xảy ra — commit chạy đồng bộ ngay
+        // trong chính lần keyEvent nhận phím xoá lùi cuối. Với hẹn giờ thì đó CHÍNH LÀ
+        // trạng thái chờ bình thường, nên phải loại trừ, không thì phím kế tiếp phá tan
+        // lượt giao chữ đang chờ. Đã vấp thật 06/09/2026: Konsole ra 'tiếng v', 'V Nam',
+        // và cả ký tự xoá lùi thô lọt vào ô nhập.
+        if (!dang_cho_giao_ && current_backspace_count_ >= expected_backspaces_ && is_deleting_.load()) {
             is_deleting_.store(false);
             current_backspace_count_ = 0;
             expected_backspaces_     = 0;
