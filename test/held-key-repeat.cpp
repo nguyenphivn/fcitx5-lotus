@@ -142,9 +142,10 @@ namespace {
 } // namespace
 
 int main(int argc, char** argv) {
-    // "paced" is the control: same 12 presses, but none of them arrive while a
+    // "paced" is the control: same presses, but none of them arrive while a
     // replacement is still in flight, so nothing lands in buffered_keys_.
     const bool paced = argc > 1 && std::string(argv[1]) == "paced";
+
     configureTestPaths("fcitx5-lotus-held-key-repeat");
     TestInstance       testInstance;
     fcitx::LotusEngine engine(&testInstance.instance);
@@ -163,80 +164,78 @@ int main(int argc, char** argv) {
     engine.activate(entry, focus);
     context->resetPreeditUpdateCount();
 
-    // Reproduces #472: a held 'd' under Telex. Autorepeat keeps delivering keys
-    // while a replacement is still waiting on the uinput server, so every extra
-    // key lands in buffered_keys_ and comes back through replayBufferedKeys().
-    const int kHeldPresses = 12;
-    int       sent         = 0;
+    // Reproduces #472: a held 'd' under Telex.
+    //
+    // The window model matters. In Smooth mode the uinput server passes the
+    // physical keystroke straight to the application, so every press shows up
+    // there on its own; Lotus only corrects afterwards with backspaces and a
+    // commit. Counting commits alone would understate what the user sees.
+    const int                kHeldPresses = 12;
+    int                      sent         = 0;
+    std::vector<std::string> screen;
+    size_t                   lastCommit = 0;
 
-    // Prime the replacement cycle: d, d -> the engine asks for a deletion.
-    while (sent < kHeldPresses) {
+    auto press = [&]() {
+        screen.emplace_back("d"); // the application sees the raw key first
         fcitx::KeyEvent event(context.get(), fcitx::Key(FcitxKey_d), false);
         engine.keyEvent(entry, event);
         ++sent;
-        if (event.accepted())
-            break;
+        return event.accepted();
+    };
+
+    auto pullCommit = [&]() {
+        if (context->commits().size() > lastCommit) {
+            for (auto& character : splitUtf8(context->commits().back()))
+                screen.push_back(character);
+            lastCommit = context->commits().size();
+        }
+    };
+
+    while (sent < kHeldPresses && !press()) {
     }
 
-    std::vector<std::string> screen;
-    size_t                   lastCommit = 0;
     int cycles = 0;
     while (cycles < 8) {
         int backspaces = 0;
         if (!listener.receive(backspaces, "no further replacement request"))
             break;
         ++cycles;
-        std::cerr << "cycle " << cycles << ": server asked for " << backspaces << " backspaces\n";
-
-        // Model what the application window actually shows: the replacement
-        // deletes `backspaces` characters before the new commit lands.
         for (int i = 0; i < backspaces && !screen.empty(); ++i)
             screen.pop_back();
-        if (context->commits().size() > lastCommit) {
-            for (auto& character : splitUtf8(context->commits().back()))
-                screen.push_back(character);
-            lastCommit = context->commits().size();
-        }
 
-        // Autorepeat does not stop while the replacement is in flight.
         if (!paced) {
-            for (int i = 0; i < 2 && sent < kHeldPresses; ++i, ++sent) {
-                fcitx::KeyEvent extra(context.get(), fcitx::Key(FcitxKey_d), false);
-                engine.keyEvent(entry, extra);
-            }
+            for (int i = 0; i < 2 && sent < kHeldPresses; ++i)
+                press();
         }
 
         for (int i = 0; i < backspaces; ++i) {
             fcitx::KeyEvent back(context.get(), fcitx::Key(FcitxKey_BackSpace), false);
             engine.keyEvent(entry, back);
         }
+        pullCommit();
 
         if (paced) {
-            while (sent < kHeldPresses) {
-                fcitx::KeyEvent next(context.get(), fcitx::Key(FcitxKey_d), false);
-                engine.keyEvent(entry, next);
-                ++sent;
-                if (next.accepted())
-                    break;
+            while (sent < kHeldPresses && !press()) {
             }
         }
     }
+    pullCommit();
 
     std::string text;
+    for (const auto& piece : screen)
+        text += piece;
     std::cerr << (paced ? "[paced control] " : "[held key] ") << "keys sent: " << sent << ", replacement cycles: " << cycles << "\ncommits: ";
     for (const auto& commit : context->commits())
         std::cerr << "['" << commit << "']";
-    for (const auto& piece : screen)
-        text += piece;
-    std::cerr << "\nwindow shows: '" << text << "'\n";
+    std::cerr << "\nforwarded: " << context->forwarded().size() << "\nwindow shows: '" << text << "' (" << screen.size() << " characters)\n";
 
     // Outside Smooth mode a held key keeps appending, so the window grows with
     // the number of presses. #472 reports that it stops instead.
     if (screen.size() < 3) {
         reportFailure("held key accumulates", "at least 3 characters after " + std::to_string(sent) + " presses",
                       "window shows '" + text + "'",
-                      "a held key never grows past the Telex cycle: replayBufferedKeys() resets the engine "
-                      "after every replacement, so the leftover autorepeat keys restart from an empty buffer");
+                      "a held key never grows past the Telex cycle: handleUinputMode() resets the Bamboo engine "
+                      "after every commit, so each repeat restarts from an empty word buffer");
         return 1;
     }
     return 0;
