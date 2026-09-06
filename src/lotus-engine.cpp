@@ -609,12 +609,7 @@ namespace fcitx {
                 LOTUS_INFO("Selected mode: " + LotusModeI18NAnnotation::toString(selectedMode.value()));
                 if (selectedMode != LotusMode::Emoji) {
                     if (keySym == Key(*config_.shortcutDefault).sym()) { // Default Typing key
-                        std::lock_guard<std::mutex> lock(appRulesMutex_);
-                        appRules_.erase(currentConfigureApp_);
-                        // Remove from the configuration object too
-                        auto rules = *appRulesTables_.rules;
-                        rules.erase(std::remove_if(rules.begin(), rules.end(), [this](const auto& rule) { return *rule.app == currentConfigureApp_; }), rules.end());
-                        appRulesTables_.rules.setValue(std::move(rules));
+                        clearAppRule(currentConfigureApp_);
                     } else {
                         setAppRule(currentConfigureApp_, selectedMode.value());
                     }
@@ -898,6 +893,15 @@ namespace fcitx {
         return config_.mode.value();
     }
 
+    void LotusEngine::clearAppRule(const std::string& appName) {
+        std::lock_guard<std::mutex> lock(appRulesMutex_);
+        appRules_.erase(appName);
+        // Remove from the configuration object too
+        auto rules = *appRulesTables_.rules;
+        rules.erase(std::remove_if(rules.begin(), rules.end(), [&appName](const auto& rule) { return *rule.app == appName; }), rules.end());
+        appRulesTables_.rules.setValue(std::move(rules));
+    }
+
     void LotusEngine::setAppRule(const std::string& appName, LotusMode mode) {
         auto rules = *appRulesTables_.rules;
 
@@ -953,10 +957,16 @@ namespace fcitx {
             state->reset();
         };
 
-        auto applyMode = [this, cleanup](LotusMode mode) {
-            return [this, mode, cleanup](InputContext* ic) {
+        auto applyMode = [this, cleanup](LotusMode mode, bool isDefault) {
+            return [this, mode, isDefault, cleanup](InputContext* ic) {
                 if (mode != LotusMode::Emoji) {
-                    setAppRule(currentConfigureApp_, mode);
+                    // Keep this in step with the shortcut path above: "Default Typing"
+                    // drops the rule, every other entry writes one.
+                    if (isDefault) {
+                        clearAppRule(currentConfigureApp_);
+                    } else {
+                        setAppRule(currentConfigureApp_, mode);
+                    }
                     if (!isStartsWith(currentConfigureApp_, "ctx_")) {
                         saveAppRules();
                     }
@@ -976,6 +986,7 @@ namespace fcitx {
             std::string label;
             KeySym      key;
             bool        visible;
+            bool        isDefault = false;
         };
 
         auto                                      getShortcut = [](const std::string& shortcut) { return Key(shortcut).sym(); };
@@ -989,7 +1000,7 @@ namespace fcitx {
             {"Emoji", {LotusMode::Emoji, _("Emoji Picker"), getShortcut(*config_.shortcutEmoji), *config_.showModeEmoji}},
             {"Off", {LotusMode::Off, _("OFF"), getShortcut(*config_.shortcutOff), *config_.showModeOff}},
             {"SuperSmooth", {LotusMode::SuperSmooth, _("Uinput (Super Smooth)"), getShortcut(*config_.shortcutSuperSmooth), *config_.showModeSuperSmooth}},
-            {"Default", {config_.mode.value(), _("Default Typing"), getShortcut(*config_.shortcutDefault), *config_.showModeDefault}}};
+            {"Default", {config_.mode.value(), _("Default Typing"), getShortcut(*config_.shortcutDefault), *config_.showModeDefault, true}}};
 
         std::vector<ModeInfo> allModes;
         auto                  order = stringutils::split(*config_.modeOrder, ",");
@@ -1030,7 +1041,7 @@ namespace fcitx {
 
                 const std::string keyUtf8  = Key::keySymToUTF8(info.key);
                 std::string       keyLabel = keyUtf8.empty() ? "" : "[" + keyUtf8 + "] ";
-                candidateList->append(std::make_unique<AppModeCandidateWord>(getLabel(info.mode, keyLabel + info.label), applyMode(info.mode)));
+                candidateList->append(std::make_unique<AppModeCandidateWord>(getLabel(info.mode, keyLabel + info.label), applyMode(info.mode, info.isDefault)));
 
                 if (info.mode == realMode) {
                     activeSelectionIdx = currentCandidateIdx;

@@ -306,6 +306,16 @@ namespace fcitx {
         void setAppRule(const std::string& appName, LotusMode mode);
 
         /**
+         * @brief Removes any per-app rule for @p appName so the app follows the
+         *        global Mode again.
+         *
+         * This is what the "Default Typing" menu entry means. Writing an explicit
+         * rule holding the current global Mode would instead pin the app to that
+         * value and stop it following later changes to the global Mode.
+         */
+        void clearAppRule(const std::string& appName);
+
+        /**
          * @brief Shows the application mode selection menu.
          * @param ic Current input context.
          */
