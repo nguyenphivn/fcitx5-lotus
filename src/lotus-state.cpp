@@ -866,9 +866,24 @@ namespace fcitx {
             if (!deletedPart.empty() || !addedPart.empty()) {
                 size_t charsToDelete = utf8::length(deletedPart);
 
+                // Trả lời fcitx5 NGAY, rồi mới chờ app xoá xong. Chờ bằng hẹn giờ chứ
+                // không ngủ trong vòng lặp sự kiện; phím gõ trong lúc chờ đã được cất
+                // ở đầu keyEvent() nhờ chốt dang_cho_giao_.
+                keyEvent.filterAndAccept();
+
                 if (charsToDelete > 0) {
                     ic->deleteSurroundingText(-static_cast<int>(charsToDelete), static_cast<int>(charsToDelete));
-                    std::this_thread::sleep_for(std::chrono::milliseconds(4 * charsToDelete));
+                    dang_cho_giao_ = true;
+                    henMotLan(static_cast<int>(4 * charsToDelete), [this, addedPart]() {
+                        if (!addedPart.empty()) {
+                            ic_->commitString(addedPart);
+                            LOTUS_INFO("Commit: " + addedPart);
+                        }
+                        ResetEngine(lotusEngine_.handle());
+                        dang_cho_giao_ = false;
+                        replayBufferedKeys();
+                    });
+                    return;
                 }
 
                 if (!addedPart.empty()) {
@@ -877,7 +892,6 @@ namespace fcitx {
                 }
 
                 ResetEngine(lotusEngine_.handle());
-                keyEvent.filterAndAccept();
                 return;
             }
 
