@@ -479,14 +479,14 @@ namespace fcitx {
         } else if (surrvalid && !state->oldPreBuffer_.empty() && (now_ms() - state->lastDeactivateTime_) >= 100) {
             state->clearAllBuffers();
         }
-        is_deleting_.store(false);
+        state->is_deleting_.store(false);
         needEngineReset.store(false);
         if (targetMode == LotusMode::Emoji) {
             state->updateEmojiPreedit();
         } else {
             ic->inputPanel().reset();
             ic->updateUserInterface(UserInterfaceComponent::InputPanel);
-            if (realMode == LotusMode::Preedit || realMode == LotusMode::SurroundingText)
+            if (state->realMode == LotusMode::Preedit || state->realMode == LotusMode::SurroundingText)
                 ic->updatePreedit();
         }
         for (const auto& action : toggleActions_) {
@@ -641,7 +641,7 @@ namespace fcitx {
         if (!keyEvent.isRelease() && !config_.cycleModeKey->empty() && keyEvent.key().checkKeyList(*config_.cycleModeKey)) {
             LOTUS_INFO("Cycle mode key pressed");
             std::string                               appName  = getProgramName(ic);
-            LotusMode                                 realMode = getAppRule(appName);
+            LotusMode                                 cheDoDangDung = getAppRule(appName);
 
             auto                                      order      = stringutils::split(*config_.modeOrder, ",");
             std::vector<std::pair<std::string, bool>> visibility = {{"Smooth", *config_.showModeSmooth},
@@ -703,7 +703,7 @@ namespace fcitx {
                 size_t currentIdx = 0;
                 bool   found      = false;
                 for (size_t i = 0; i < enabledModes.size(); ++i) {
-                    if (enabledModes[i] == realMode) {
+                    if (enabledModes[i] == cheDoDangDung) {
                         currentIdx = i;
                         found      = true;
                         break;
@@ -737,7 +737,7 @@ namespace fcitx {
         size_t       textLen = fcitx_utf8_strlen(text.c_str());
         unsigned int cursor  = s.cursor();
         if (textLen == static_cast<size_t>(cursor))
-            realtextLen.store(static_cast<unsigned int>(textLen), std::memory_order_release);
+            state->realtextLen.store(static_cast<unsigned int>(textLen), std::memory_order_release);
     }
 
     void LotusEngine::reset(const InputMethodEntry& /*entry*/, InputContextEvent& event) {
@@ -758,7 +758,7 @@ namespace fcitx {
         const bool surrvalid       = ic->surroundingText().isValid();
         const bool is_dbus         = getFrontendName(ic) == "dbus";
         state->lastDeactivateTime_ = now_ms();
-        if (realMode == LotusMode::Preedit && event.type() != EventType::InputContextFocusOut) {
+        if (state->realMode == LotusMode::Preedit && event.type() != EventType::InputContextFocusOut) {
             state->commitBuffer();
         } else {
             if (event.type() == EventType::InputContextFocusOut && is_dbus && !surrvalid) {
@@ -768,11 +768,12 @@ namespace fcitx {
                 if (surrvalid && !state->oldPreBuffer_.empty())
                     state->clearAllBuffers();
             }
-            is_deleting_.store(false);
+            state->is_deleting_.store(false);
             needEngineReset.store(false);
             ic->inputPanel().reset();
             ic->updateUserInterface(UserInterfaceComponent::InputPanel);
-            if (realMode == LotusMode::Preedit || realMode == LotusMode::Emoji || realMode == LotusMode::SurroundingText)
+            if (state->realMode == LotusMode::Preedit || state->realMode == LotusMode::Emoji ||
+                state->realMode == LotusMode::SurroundingText)
                 ic->updatePreedit();
         }
     }
@@ -780,25 +781,19 @@ namespace fcitx {
     void LotusEngine::refreshEngine() {
         if (!factory_.registered())
             return;
-        bool coCuaSoDangGo = false;
-        instance_->inputContextManager().foreach ([this, &coCuaSoDangGo](InputContext* ic) {
+        instance_->inputContextManager().foreach ([this](InputContext* ic) {
             auto* state = ic->propertyFor(&factory_);
             state->setEngine();
+            // Mỗi cửa sổ giữ chế độ riêng, nên đặt lại theo đúng luật của app nó — không
+            // riêng cửa sổ đang gõ. Trước đây realMode là biến chung nên phải phân biệt
+            // "có cửa sổ nào đang gõ không"; giờ không cần nữa.
+            state->realMode = getAppRule(getProgramName(ic));
             if (ic->hasFocus()) {
-                // Đặt lại chế độ theo ĐÚNG luật của app đang gõ. Trước đây setEngine()
-                // ghi thẳng mặc định chung vào realMode nên nạp lại cấu hình là mất luật
-                // riêng của cửa sổ đang hoạt động.
-                setMode(getAppRule(getProgramName(ic)), ic);
+                setMode(state->realMode, ic);
                 state->reset();
-                coCuaSoDangGo = true;
             }
             return true;
         });
-        // Không có cửa sổ nào đang gõ thì không có luật riêng nào để theo; giữ mặc định
-        // chung như hành vi cũ. Lần focus kế tiếp activate() sẽ đặt lại cho đúng.
-        if (!coCuaSoDangGo) {
-            realMode = config_.mode.value();
-        }
     }
 
     void LotusEngine::refreshOption() {
@@ -938,6 +933,8 @@ namespace fcitx {
 
     void LotusEngine::showAppModeMenu(InputContext* ic) {
         isSelectingAppMode_ = true;
+        // Chế độ giờ thuộc về từng cửa sổ; menu này vẽ cho đúng cửa sổ đang gõ.
+        const LotusMode cheDoCuaSo = ic->propertyFor(&factory_)->realMode;
 
         auto candidateList = std::make_unique<CommonCandidateList>();
 
@@ -945,7 +942,7 @@ namespace fcitx {
         candidateList->setPageSize(10);
 
         auto getLabel = [&](const LotusMode& modeName, const std::string& modeLabel) {
-            if (modeName == realMode) {
+            if (modeName == cheDoCuaSo) {
                 return Text(">> " + modeLabel);
             }
             return Text("   " + modeLabel);
@@ -1044,7 +1041,7 @@ namespace fcitx {
                 std::string       keyLabel      = keyUtf8.empty() ? "" : "[" + keyUtf8 + "] ";
                 candidateList->append(std::make_unique<AppModeCandidateWord>(getLabel(info.mode, keyLabel + info.label), applyMode(info.mode, isDefaultItem)));
 
-                if (info.mode == realMode && !isDefaultItem) {
+                if (info.mode == cheDoCuaSo && !isDefaultItem) {
                     activeSelectionIdx = currentCandidateIdx;
                 } else if (isDefaultItem && getAppRule(currentConfigureApp_) == defaultMode) {
 #if __cplusplus >= 202002L
@@ -1139,18 +1136,22 @@ namespace fcitx {
     }
 
     void LotusEngine::setMode(LotusMode mode, InputContext* ic) {
-        realMode = mode;
-        if (ic != nullptr) {
-            if (auto* state = ic->propertyFor(&factory_)) {
-                state->clearAllBuffers();
-            }
-            ic->updateUserInterface(UserInterfaceComponent::StatusArea);
+        // Chế độ giờ thuộc về cửa sổ, nên không có cửa sổ thì không có gì để đặt. Cả 6 chỗ
+        // gọi đều truyền cửa sổ thật; nhánh này chỉ là phòng thân.
+        if (ic == nullptr)
+            return;
+        if (auto* state = ic->propertyFor(&factory_)) {
+            state->realMode = mode;
+            state->clearAllBuffers();
         }
+        ic->updateUserInterface(UserInterfaceComponent::StatusArea);
     }
 
-    std::string LotusEngine::subModeIconImpl(const InputMethodEntry& /*entry*/, InputContext& /*inputContext*/) {
+    std::string LotusEngine::subModeIconImpl(const InputMethodEntry& /*entry*/, InputContext& inputContext) {
         std::string baseIconName;
-        switch (realMode) {
+        // Tham số inputContext trước đây bỏ không, hàm đọc biến chung — nên biểu tượng khay
+        // hệ thống có thể vẽ theo chế độ của cửa sổ khác. Giờ đọc đúng cửa sổ được hỏi.
+        switch (inputContext.propertyFor(&factory_)->realMode) {
             case LotusMode::Off: baseIconName = "fcitx-lotus-off"; break;
             case LotusMode::Emoji: baseIconName = "fcitx-lotus-emoji"; break;
             default: baseIconName = "fcitx-lotus"; break;
@@ -1211,8 +1212,8 @@ namespace fcitx {
         return iconCachePath_;
     }
 
-    std::string LotusEngine::subModeLabelImpl(const InputMethodEntry& /*entry*/, InputContext& /*inputContext*/) {
-        switch (realMode) {
+    std::string LotusEngine::subModeLabelImpl(const InputMethodEntry& /*entry*/, InputContext& inputContext) {
+        switch (inputContext.propertyFor(&factory_)->realMode) {
             case LotusMode::Off: return _("Lotus - Off");
             case LotusMode::Emoji: return "😄";
             default: return isGnome_ ? "vi" : "🪷";

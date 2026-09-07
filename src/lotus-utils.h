@@ -36,15 +36,17 @@ FCITX_DECLARE_LOG_CATEGORY(lotus);
 // Forward declaration for fcitx types
 using KeySym = uint32_t;
 
-// Global state variables for input processing
-extern std::atomic<fcitx::LotusMode> realMode;          ///< Current active input mode
-extern std::atomic<bool>             needEngineReset;   ///< Flag to trigger engine reset
-extern std::atomic<bool>             g_mouse_clicked;   ///< Mouse click detection flag
-extern std::atomic<bool>             is_deleting_;      ///< Deletion in progress flag
-extern std::atomic<bool>             stop_flag_monitor; ///< Signal to stop monitor threads
-extern std::atomic<int>              uinput_client_fd_; ///< Uinput client file descriptor
-extern std::atomic<unsigned int>     realtextLen;       ///< Current text length
-extern std::atomic<int>              mouse_socket_fd;   ///< Mouse socket file descriptor
+// Toàn cục THẬT: mỗi biến dưới đây hoặc do luồng theo dõi chuột chạm tới
+// (lotus-monitor.cpp), hoặc là một tài nguyên duy nhất của cả tiến trình. Luồng chuột
+// không biết cửa sổ nào cả, nên không đưa xuống LotusState được.
+//
+// realMode, is_deleting_ và realtextLen TỪNG nằm ở đây; chúng là trạng thái riêng của
+// từng cửa sổ nên đã chuyển vào LotusState. Xem THIETKE-bien-toan-cuc.md ở kho ghi chú.
+extern std::atomic<bool>         needEngineReset;   ///< Luồng chuột báo: cần dựng lại engine
+extern std::atomic<bool>         g_mouse_clicked;   ///< Luồng chuột báo: vừa có cú bấm
+extern std::atomic<bool>         stop_flag_monitor; ///< Công tắc tắt luồng theo dõi
+extern std::atomic<int>          uinput_client_fd_; ///< Một kết nối duy nhất tới uinput server
+extern std::atomic<int>          mouse_socket_fd;   ///< Socket duy nhất của luồng chuột
 
 /**
  * @brief Builds socket path from base suffix.

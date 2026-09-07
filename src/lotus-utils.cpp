@@ -16,15 +16,12 @@
 #include <algorithm>
 #include <chrono>
 
-// Global variables
-std::atomic<fcitx::LotusMode> realMode{fcitx::LotusMode::Smooth};
-std::atomic<bool>             needEngineReset{false};
-std::atomic<bool>             g_mouse_clicked{false};
-std::atomic<bool>             is_deleting_{false};
-std::atomic<bool>             stop_flag_monitor{false};
-std::atomic<int>              uinput_client_fd_{-1};
-std::atomic<unsigned int>     realtextLen{0};
-std::atomic<int>              mouse_socket_fd{-1};
+// Toàn cục thật — xem chú thích ở lotus-utils.h
+std::atomic<bool> needEngineReset{false};
+std::atomic<bool> g_mouse_clicked{false};
+std::atomic<bool> stop_flag_monitor{false};
+std::atomic<int>  uinput_client_fd_{-1};
+std::atomic<int>  mouse_socket_fd{-1};
 
 FCITX_DEFINE_LOG_CATEGORY(lotus, "lotus", fcitx::LogLevel::NoLog);
 

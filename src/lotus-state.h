@@ -41,6 +41,17 @@ namespace fcitx {
      */
     class LotusState final : public InputContextProperty {
       public:
+        // Ba biến này trước nằm ở lotus-utils.cpp dưới dạng toàn cục, dùng chung cho mọi cửa
+        // sổ. Chúng là trạng thái RIÊNG của từng cửa sổ: chế độ gõ theo luật per-app, cờ
+        // "đang xoá lùi", và độ dài văn bản đã biết. Để chung thì hẹn giờ của cửa sổ A có thể
+        // đọc nhầm số của cửa sổ B (xem THIETKE-bien-toan-cuc.md).
+        //
+        // Vẫn giữ std::atomic tuy giờ chỉ luồng chính chạm tới: đổi kiểu sẽ kéo theo ~70 chỗ
+        // .load()/.store(), trộn vào một lượt làm diff khó soi. Để riêng một lượt sau.
+        std::atomic<LotusMode>    realMode{LotusMode::Smooth};  ///< Chế độ gõ của CỬA SỔ NÀY
+        std::atomic<bool>         is_deleting_{false};          ///< Đang chờ app xoá lùi xong
+        std::atomic<unsigned int> realtextLen{0};               ///< Độ dài văn bản đã biết
+
         /**
          * @brief Constructs a new state instance.
          * @param engine Pointer to the Lotus engine.
