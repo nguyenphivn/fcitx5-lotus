@@ -45,12 +45,12 @@ namespace fcitx {
         // sổ. Chúng là trạng thái RIÊNG của từng cửa sổ: chế độ gõ theo luật per-app, cờ
         // "đang xoá lùi", và độ dài văn bản đã biết. Để chung thì hẹn giờ của cửa sổ A có thể
         // đọc nhầm số của cửa sổ B (xem THIETKE-bien-toan-cuc.md).
-        //
-        // Vẫn giữ std::atomic tuy giờ chỉ luồng chính chạm tới: đổi kiểu sẽ kéo theo ~70 chỗ
-        // .load()/.store(), trộn vào một lượt làm diff khó soi. Để riêng một lượt sau.
-        std::atomic<LotusMode>    realMode{LotusMode::Smooth};  ///< Chế độ gõ của CỬA SỔ NÀY
-        std::atomic<bool>         is_deleting_{false};          ///< Đang chờ app xoá lùi xong
-        std::atomic<unsigned int> realtextLen{0};               ///< Độ dài văn bản đã biết
+        // KHÔNG atomic: ba biến này chỉ chạy trên luồng chính của fcitx5. Luồng phụ duy
+        // nhất (theo dõi chuột, lotus-monitor.cpp) không chạm tới chúng. Để atomic là trả
+        // giá cho một thứ không xảy ra, và là lời nói dối về ý định của mã.
+        LotusMode    realMode    = LotusMode::Smooth;  ///< Chế độ gõ của CỬA SỔ NÀY
+        bool         is_deleting_ = false;             ///< Đang chờ app xoá lùi xong
+        unsigned int realtextLen = 0;                  ///< Độ dài văn bản đã biết
 
         /**
          * @brief Constructs a new state instance.

@@ -87,7 +87,7 @@ namespace fcitx {
     }
 
     bool LotusState::connect_uinput_server() {
-        if (uinput_client_fd_ >= 0)
+        if (uinput_client_fd >= 0)
             return true;
         const std::string current_path = buildSocketPath("kb_socket");
         int               current_fd   = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK, 0);
@@ -104,12 +104,12 @@ namespace fcitx {
         socklen_t len = offsetof(struct sockaddr_un, sun_path) + current_path.length() + 1;
 
         if (connect(current_fd, (struct sockaddr*)&addr, len) == 0) {
-            uinput_client_fd_ = current_fd;
+            uinput_client_fd = current_fd;
             return true;
         }
         LOTUS_ERROR("Failed to connect to socket: " + std::string(strerror(errno)));
         close(current_fd);
-        int old_fd = uinput_client_fd_.exchange(-1);
+        int old_fd = uinput_client_fd.exchange(-1);
         if (old_fd != -1) {
             close(old_fd);
         }
@@ -117,26 +117,26 @@ namespace fcitx {
     }
 
     int LotusState::setup_uinput() {
-        return connect_uinput_server() ? uinput_client_fd_.load(std::memory_order_acquire) : -1;
+        return connect_uinput_server() ? uinput_client_fd.load(std::memory_order_acquire) : -1;
     }
 
     void LotusState::send_backspace_uinput(int count) const {
-        if (uinput_client_fd_ < 0 && !connect_uinput_server()) {
+        if (uinput_client_fd < 0 && !connect_uinput_server()) {
             LOTUS_ERROR("Cannot send backspace since cannot connect to uinput server");
             return;
         }
 
-        ssize_t n = send(uinput_client_fd_, &count, sizeof(count), MSG_NOSIGNAL);
+        ssize_t n = send(uinput_client_fd, &count, sizeof(count), MSG_NOSIGNAL);
 
         if (n < 0) {
             LOTUS_WARN("Failed to send backspace: " + std::string(strerror(errno)));
-            int old_fd = uinput_client_fd_.exchange(-1);
+            int old_fd = uinput_client_fd.exchange(-1);
             if (old_fd != -1) {
                 close(old_fd);
             }
             if (connect_uinput_server()) {
                 LOTUS_INFO("Reconnected to uinput server successfully");
-                send(uinput_client_fd_, &count, sizeof(count), MSG_NOSIGNAL);
+                send(uinput_client_fd, &count, sizeof(count), MSG_NOSIGNAL);
             }
         }
 
@@ -184,7 +184,7 @@ namespace fcitx {
         }
 
         if (textLen == static_cast<size_t>(cursor)) {
-            realtextLen.store(textLen, std::memory_order_release);
+            realtextLen = textLen;
             return false;
         }
 
@@ -194,11 +194,13 @@ namespace fcitx {
         if (buffLen > textLen) {
             return false;
         }
-        if (textLen > static_cast<size_t>(cursor) + 1 && cursor == realtextLen.load(std::memory_order_acquire) && u32Text.find(U'\n', cursor) == std::u32string::npos && sameprefix)
+        if (textLen > static_cast<size_t>(cursor) + 1 && cursor == realtextLen && u32Text.find(U'\n', cursor) == std::u32string::npos && sameprefix)
             return true;
 
-        for (auto v = realtextLen.load(std::memory_order_acquire); v < cursor && !realtextLen.compare_exchange_weak(v, cursor, std::memory_order_acq_rel);)
-            ;
+        // Vòng compare_exchange cũ chỉ là "lấy giá trị lớn hơn", viết cho an toàn đa luồng.
+        // Giờ chỉ luồng chính chạm tới nên viết thẳng.
+        if (realtextLen < cursor)
+            realtextLen = cursor;
         return false;
     }
 
@@ -490,7 +492,7 @@ namespace fcitx {
         current_backspace_count_ = 0;
         pending_commit_string_.clear();
         dang_cho_giao_ = false;
-        is_deleting_.store(false);
+        is_deleting_ = false;
         replayBufferedKeys();
     }
 
@@ -507,12 +509,12 @@ namespace fcitx {
         current_backspace_count_ = 0;
         pending_commit_string_.clear();
         dang_cho_giao_ = false;
-        is_deleting_.store(false);
+        is_deleting_ = false;
         replayBufferedKeys();
     }
 
     bool LotusState::handleUInputKeyPress(KeyEvent& event, KeySym currentSym, int sleepTime) {
-        if (!is_deleting_.load()) {
+        if (!is_deleting_) {
             return false;
         }
         if (isBackspace(currentSym)) {
@@ -530,7 +532,7 @@ namespace fcitx {
             // trễ 58–184 ms) thì bản cập nhật muộn lọt vào giữa lúc chờ làm điều kiện
             // thoát sớm ăn nhầm, gõ sai dấu. Đo 06/09/2026: 3 ô Firefox+SurroundingText.
             const auto& surr = ic_->surroundingText();
-            const bool  dung = surr.isValid() && surr.cursor() == realtextLen.load(std::memory_order_acquire);
+            const bool  dung = surr.isValid() && surr.cursor() == realtextLen;
             if (dung) {
                 LOTUS_INFO("Skip retry");
             }
@@ -563,7 +565,7 @@ namespace fcitx {
                 }
             }
         }
-        is_deleting_.store(true, std::memory_order_release);
+        is_deleting_ = true;
         if (isSurrText) {
             // XOÁ VÀ GIAO CHỮ PHẢI ĐI CHUNG MỘT GÓI. Giao thức text-input của Wayland nói
             // app áp dụng một lượt theo thứ tự: thay chữ đang soạn → xoá chữ xung quanh →
@@ -593,7 +595,7 @@ namespace fcitx {
     bool LotusState::checkForwardSpecialKey(KeyEvent& keyEvent, KeySym& currentSym) {
         if (keyEvent.key().isCursorMove() || currentSym == FcitxKey_Tab || currentSym == FcitxKey_KP_Tab || currentSym == FcitxKey_ISO_Left_Tab || currentSym == FcitxKey_Escape ||
             keyEvent.key().hasModifier()) {
-            is_deleting_.store(false, std::memory_order_release);
+            is_deleting_ = false;
             expected_backspaces_     = 0;
             current_backspace_count_ = 0;
             pending_commit_string_.clear();
@@ -656,7 +658,7 @@ namespace fcitx {
             return;
         }
 
-        if (uinput_client_fd_ < 0) {
+        if (uinput_client_fd < 0) {
             setup_uinput();
         }
 
@@ -732,7 +734,7 @@ namespace fcitx {
         }
 
         hasHistory_ = true;
-        realtextLen.fetch_add(1, std::memory_order_acq_rel);
+        realtextLen += 1;
 
         UniqueCPtr<char> preeditC(EnginePullPreedit(lotusEngine_.handle()));
         std::string      preeditStr = (preeditC && (*preeditC.get() != 0)) ? preeditC.get() : "";
@@ -762,7 +764,7 @@ namespace fcitx {
                     keyEvent.forward();
                 }
             } else {
-                if (uinput_client_fd_ < 0) {
+                if (uinput_client_fd < 0) {
                     LOTUS_ERROR("Cannot connect to uinput server, commit rawkey");
                     std::string rawKey = keyEvent.key().toString();
                     if (!rawKey.empty()) {
@@ -771,8 +773,8 @@ namespace fcitx {
                     return;
                 }
 
-                if (is_deleting_.load()) {
-                    is_deleting_.store(false, std::memory_order_release);
+                if (is_deleting_) {
+                    is_deleting_ = false;
                 }
 
                 if (!wa_chromium_flag)
@@ -973,7 +975,7 @@ namespace fcitx {
             return;
         }
 
-        if (uinput_client_fd_ < 0) {
+        if (uinput_client_fd < 0) {
             connect_uinput_server();
         }
 
@@ -1013,7 +1015,7 @@ namespace fcitx {
             if (isMacroExpansion) {
                 LOTUS_INFO("Macro expansion: '" + oldPreBuffer_ + "' -> '" + commitStr + "'");
                 // Try uinput replacement first, fallback to deleteSurroundingText, then plain commit
-                if (uinput_client_fd_ >= 0 && !oldPreBuffer_.empty()) {
+                if (uinput_client_fd >= 0 && !oldPreBuffer_.empty()) {
                     performReplacement(oldPreBuffer_, commitStr);
                 } else if (ic_->capabilityFlags().test(CapabilityFlag::SurroundingText)) {
                     const auto& surrounding = ic_->surroundingText();
@@ -1077,7 +1079,7 @@ namespace fcitx {
         }
         if (keyEvent.isRelease())
             return;
-        if (uinput_client_fd_ < 0) {
+        if (uinput_client_fd < 0) {
             LOTUS_WARN("Cannot connect to uinput server, reconnecting....");
             connect_uinput_server();
         }
@@ -1087,8 +1089,8 @@ namespace fcitx {
         // trạng thái chờ bình thường, nên phải loại trừ, không thì phím kế tiếp phá tan
         // lượt giao chữ đang chờ. Đã vấp thật 06/09/2026: Konsole ra 'tiếng v', 'V Nam',
         // và cả ký tự xoá lùi thô lọt vào ô nhập.
-        if (!dang_cho_giao_ && current_backspace_count_ >= expected_backspaces_ && is_deleting_.load()) {
-            is_deleting_.store(false);
+        if (!dang_cho_giao_ && current_backspace_count_ >= expected_backspaces_ && is_deleting_) {
+            is_deleting_ = false;
             current_backspace_count_ = 0;
             expected_backspaces_     = 0;
             if (!buffered_keys_.empty()) {
@@ -1100,7 +1102,7 @@ namespace fcitx {
             oldPreBuffer_.clear();
             hasHistory_ = false;
             ResetEngine(lotusEngine_.handle());
-            is_deleting_.store(false);
+            is_deleting_ = false;
             current_backspace_count_ = 0;
             isPrevSpace_             = false;
             shouldCapitalize_        = false;
@@ -1108,7 +1110,7 @@ namespace fcitx {
             needEngineReset.store(false);
         }
 
-        if (g_mouse_clicked.load(std::memory_order_acquire) && !is_deleting_.load(std::memory_order_acquire)) {
+        if (g_mouse_clicked.load(std::memory_order_acquire) && !is_deleting_) {
             g_mouse_clicked.store(false, std::memory_order_release);
             clearAllBuffers();
         }
@@ -1131,7 +1133,7 @@ namespace fcitx {
         }
         if (*engine_->config().autoCapitalizeAfterPunctuation && realMode != LotusMode::Off) {
             // Ignore auto-capitalize side-effects if we're processing automated replacement backspaces
-            bool isAutomatedBackspace = is_deleting_.load(std::memory_order_acquire) && isBackspace(currentSym);
+            bool isAutomatedBackspace = is_deleting_ && isBackspace(currentSym);
 
             if (!isAutomatedBackspace) {
                 if (shouldCapitalize_) {
@@ -1169,10 +1171,10 @@ namespace fcitx {
             }
         }
 
-        if (is_deleting_.load(std::memory_order_acquire)) {
+        if (is_deleting_) {
             if (isBackspace(currentSym)) {
-                if (realtextLen.load(std::memory_order_acquire) > 0)
-                    realtextLen.fetch_sub(1, std::memory_order_acq_rel);
+                if (realtextLen > 0)
+                    realtextLen -= 1;
                 if (handleUInputKeyPress(keyEvent, currentSym, (realMode == LotusMode::Smooth || realMode == LotusMode::SuperSmooth) ? 2 : 8)) {
                     return;
                 }
@@ -1251,8 +1253,8 @@ namespace fcitx {
         const auto& surrounding = ic_->surroundingText();
         const auto& text        = surrounding.text();
         size_t      textLen     = utf8::length(text);
-        realtextLen.store(textLen, std::memory_order_release);
-        if (is_deleting_.load(std::memory_order_acquire)) {
+        realtextLen = textLen;
+        if (is_deleting_) {
             return;
         }
         resetMacroSkip();
@@ -1337,13 +1339,13 @@ namespace fcitx {
 
     void LotusState::clearAllBuffers() {
         LOTUS_DEBUG("Clear all buffers");
-        if (is_deleting_.load(std::memory_order_acquire)) {
+        if (is_deleting_) {
             return;
         }
         resetMacroSkip();
         oldPreBuffer_.clear();
         hasHistory_ = false;
-        if (!is_deleting_.load(std::memory_order_acquire)) {
+        if (!is_deleting_) {
             expected_backspaces_     = 0;
             current_backspace_count_ = 0;
             pending_commit_string_.clear();
@@ -1416,7 +1418,7 @@ namespace fcitx {
             }
 
             hasHistory_ = true;
-            realtextLen.fetch_add(1, std::memory_order_acq_rel);
+            realtextLen += 1;
 
             UniqueCPtr<char> preeditC(EnginePullPreedit(lotusEngine_.handle()));
             std::string      preeditStr = (preeditC && (*preeditC.get() != 0)) ? preeditC.get() : "";
@@ -1430,13 +1432,13 @@ namespace fcitx {
                         oldPreBuffer_ = preeditStr;
                     }
                 } else {
-                    if (uinput_client_fd_ < 0) {
+                    if (uinput_client_fd < 0) {
                         ic_->commitString(keyUtf8);
                         continue;
                     }
 
-                    if (is_deleting_.load()) {
-                        is_deleting_.store(false, std::memory_order_release);
+                    if (is_deleting_) {
+                        is_deleting_ = false;
                     }
 
                     // Re-buffer remaining keys for next replay cycle.

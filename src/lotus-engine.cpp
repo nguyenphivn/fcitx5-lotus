@@ -302,7 +302,7 @@ namespace fcitx {
         if (mouse_thread.joinable()) {
             mouse_thread.join();
         }
-        int old_fd = uinput_client_fd_.exchange(-1);
+        int old_fd = uinput_client_fd.exchange(-1);
         if (old_fd != -1) {
             close(old_fd);
         }
@@ -479,7 +479,7 @@ namespace fcitx {
         } else if (surrvalid && !state->oldPreBuffer_.empty() && (now_ms() - state->lastDeactivateTime_) >= 100) {
             state->clearAllBuffers();
         }
-        state->is_deleting_.store(false);
+        state->is_deleting_ = false;
         needEngineReset.store(false);
         if (targetMode == LotusMode::Emoji) {
             state->updateEmojiPreedit();
@@ -737,7 +737,7 @@ namespace fcitx {
         size_t       textLen = fcitx_utf8_strlen(text.c_str());
         unsigned int cursor  = s.cursor();
         if (textLen == static_cast<size_t>(cursor))
-            state->realtextLen.store(static_cast<unsigned int>(textLen), std::memory_order_release);
+            state->realtextLen = static_cast<unsigned int>(textLen);
     }
 
     void LotusEngine::reset(const InputMethodEntry& /*entry*/, InputContextEvent& event) {
@@ -768,7 +768,7 @@ namespace fcitx {
                 if (surrvalid && !state->oldPreBuffer_.empty())
                     state->clearAllBuffers();
             }
-            state->is_deleting_.store(false);
+            state->is_deleting_ = false;
             needEngineReset.store(false);
             ic->inputPanel().reset();
             ic->updateUserInterface(UserInterfaceComponent::InputPanel);

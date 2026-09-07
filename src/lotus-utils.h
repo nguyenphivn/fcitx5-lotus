@@ -45,7 +45,7 @@ using KeySym = uint32_t;
 extern std::atomic<bool>         needEngineReset;   ///< Luồng chuột báo: cần dựng lại engine
 extern std::atomic<bool>         g_mouse_clicked;   ///< Luồng chuột báo: vừa có cú bấm
 extern std::atomic<bool>         stop_flag_monitor; ///< Công tắc tắt luồng theo dõi
-extern std::atomic<int>          uinput_client_fd_; ///< Một kết nối duy nhất tới uinput server
+extern std::atomic<int>          uinput_client_fd; ///< Một kết nối duy nhất tới uinput server
 extern std::atomic<int>          mouse_socket_fd;   ///< Socket duy nhất của luồng chuột
 
 /**

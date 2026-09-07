@@ -20,7 +20,7 @@
 std::atomic<bool> needEngineReset{false};
 std::atomic<bool> g_mouse_clicked{false};
 std::atomic<bool> stop_flag_monitor{false};
-std::atomic<int>  uinput_client_fd_{-1};
+std::atomic<int>  uinput_client_fd{-1};
 std::atomic<int>  mouse_socket_fd{-1};
 
 FCITX_DEFINE_LOG_CATEGORY(lotus, "lotus", fcitx::LogLevel::NoLog);
