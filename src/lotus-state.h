@@ -114,6 +114,7 @@ namespace fcitx {
 
         std::unique_ptr<EventSourceTime> hen_gio_;               ///< Hẹn đang chờ, thay cho sleep_for
         std::unique_ptr<EventSourceTime> hen_gio_cu_;            ///< Hẹn của lượt trước, buông chậm một nhịp
+        int                              cho_hien_ms_   = 0;     ///< Chờ chữ vừa giao hiện ra, ms
         bool                             dang_cho_giao_ = false; ///< Đã gửi xong xoá lùi, đang chờ tới giờ giao chữ
 
         /**
@@ -251,6 +252,15 @@ namespace fcitx {
          * @param viec Việc làm khi tới giờ.
          */
         void batDauChoGiao(int msec);
+
+        /// Hẹn MỘT lần rồi chạy `viec`. Gọi được từ trong callback của hẹn trước.
+        void henMotLan(int msec, std::function<void()> viec);
+
+        /// Đường surrounding text: chờ app xoá xong -> giao chữ -> chờ chữ hiện -> phát lại phím.
+        void batDauChoSurr(int msecXoa);
+
+        /// Bước cuối của `batDauChoSurr`: dọn trạng thái và phát lại phím đã cất.
+        void ketThucSurr();
 
         /// Huỷ hẹn đang chờ (mất focus, đặt lại trạng thái).
         void huyHenGio();

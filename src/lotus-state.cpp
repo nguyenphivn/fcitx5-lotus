@@ -442,29 +442,56 @@ namespace fcitx {
         ic_->updateUserInterface(UserInterfaceComponent::InputPanel);
     }
 
-    void LotusState::batDauChoGiao(int msec) {
-        dang_cho_giao_ = true;
+    void LotusState::henMotLan(int msec, std::function<void()> viec) {
         if (msec < 0)
             msec = 0;
         auto& eventLoop = engine_->instance()->eventLoop();
-        // Đừng xoá hẹn cũ NGAY: có thể ta đang đứng trong callback của nó (replayBufferedKeys
-        // gọi tiếp một lượt thay chữ mới). `unique_ptr` gán đè là xoá nguồn đang chạy.
+        // Đừng xoá hẹn cũ NGAY: hàm này được gọi TỪ TRONG callback của hẹn trước.
+        // `unique_ptr` gán đè là xoá nguồn đang chạy, kéo theo cả lambda đang thực thi.
+        // Giữ lại một nhịp rồi mới buông.
         hen_gio_cu_ = std::move(hen_gio_);
         // Tham số thứ ba là ĐỘ CHÍNH XÁC (micro-giây). Truyền 0 nghĩa là "mặc định", mà mặc
         // định là 250 ms — hẹn 2 ms nhưng nổ sau tới 250 ms, gom nhóm cho tiết kiệm điện.
         // Đo 06/09/2026 thấy các lần giao chữ rơi đúng vào lưới cách nhau 250 ms.
         hen_gio_ = eventLoop.addTimeEvent(
             CLOCK_MONOTONIC, now(CLOCK_MONOTONIC) + static_cast<uint64_t>(msec) * 1000ULL, 100,
-            [this, icRef = ic_->watch()](EventSourceTime*, uint64_t) {
+            [this, icRef = ic_->watch(), viec = std::move(viec)](EventSourceTime*, uint64_t) {
                 // `LotusState` là thuộc tính của chính input context này: ic còn sống thì
-                // `this` còn sống. ic chết thì bỏ việc.
+                // `this` còn sống. ic chết thì bỏ việc, và gỡ cờ để không kẹt.
                 if (icRef.get() == nullptr) {
                     dang_cho_giao_ = false;
                     return false;
                 }
-                giaoChuNgay();
+                viec();
                 return false;
             });
+    }
+
+    void LotusState::batDauChoGiao(int msec) {
+        dang_cho_giao_ = true;
+        henMotLan(msec, [this]() { giaoChuNgay(); });
+    }
+
+    void LotusState::batDauChoSurr(int msecXoa) {
+        dang_cho_giao_ = true;
+        henMotLan(msecXoa, [this]() {
+            if (!pending_commit_string_.empty()) {
+                ic_->commitString(pending_commit_string_);
+                LOTUS_INFO("Commit: " + pending_commit_string_);
+                henMotLan(cho_hien_ms_, [this]() { ketThucSurr(); });
+                return;
+            }
+            ketThucSurr();
+        });
+    }
+
+    void LotusState::ketThucSurr() {
+        expected_backspaces_     = 0;
+        current_backspace_count_ = 0;
+        pending_commit_string_.clear();
+        dang_cho_giao_ = false;
+        is_deleting_.store(false);
+        replayBufferedKeys();
     }
 
     void LotusState::huyHenGio() {
@@ -540,17 +567,10 @@ namespace fcitx {
         if (isSurrText) {
             ic_->deleteSurroundingText(-expected_backspaces_, expected_backspaces_);
             LOTUS_INFO("Delete using surrounding text");
-            std::this_thread::sleep_for(std::chrono::milliseconds(4 * expected_backspaces_));
-            if (!pending_commit_string_.empty()) {
-                ic_->commitString(pending_commit_string_);
-                LOTUS_INFO("Commit: " + pending_commit_string_);
-                std::this_thread::sleep_for(std::chrono::milliseconds(3 * utf8::length(addedPart)));
-            }
-            expected_backspaces_     = 0;
-            current_backspace_count_ = 0;
-            pending_commit_string_.clear();
-            is_deleting_.store(false);
-            replayBufferedKeys();
+            // Chờ app xoá xong rồi mới giao chữ, và chờ tiếp cho chữ hiện ra rồi mới phát
+            // lại phím đã cất — đúng hai khoảng ngủ cũ, chỉ khác là không chặn vòng lặp.
+            cho_hien_ms_ = static_cast<int>(3 * utf8::length(addedPart));
+            batDauChoSurr(4 * expected_backspaces_);
             return;
         }
         send_backspace_uinput(expected_backspaces_);
@@ -1077,6 +1097,22 @@ namespace fcitx {
             clearAllBuffers();
         }
         KeySym currentSym = keyEvent.rawKey().sym();
+
+        // Đang chờ tới giờ giao chữ. Trước đây khoảng chờ này là `sleep_for` nên vòng lặp sự
+        // kiện đứng im và KHÔNG phím nào tới được. Giờ vòng lặp còn sống nên phím tới THẬT —
+        // phải cất vào hàng đợi, đừng xử lý. Một phím lọt qua đây là kích lượt thay chữ thứ
+        // hai chồng lên lượt đang dở.
+        //
+        // Chốt đặt ở ĐÂY chứ không nằm trong nhánh `is_deleting_`: đường surrounding text
+        // không bật cờ đó, nên chốt nằm trong nhánh kia không che được nó.
+        if (dang_cho_giao_) {
+            std::string keyUtf8Cho = Key::keySymToUTF8(currentSym);
+            if (!keyUtf8Cho.empty() && buffered_keys_.size() < MAX_BUFFERED_KEYS) {
+                buffered_keys_.push_back({.sym = currentSym, .state = keyEvent.rawKey().states()});
+            }
+            keyEvent.filterAndAccept();
+            return;
+        }
         if (*engine_->config().autoCapitalizeAfterPunctuation && realMode != LotusMode::Off) {
             // Ignore auto-capitalize side-effects if we're processing automated replacement backspaces
             bool isAutomatedBackspace = is_deleting_.load(std::memory_order_acquire) && isBackspace(currentSym);
@@ -1118,19 +1154,6 @@ namespace fcitx {
         }
 
         if (is_deleting_.load(std::memory_order_acquire)) {
-            if (dang_cho_giao_) {
-                // Đã gửi xong xoá lùi, đang chờ tới giờ giao chữ. Trước đây khoảng chờ này
-                // là `sleep_for` nên vòng lặp sự kiện đứng im và KHÔNG phím nào tới được.
-                // Giờ vòng lặp còn sống nên phím tới THẬT — phải cất vào hàng đợi, đừng xử
-                // lý: một phím xoá lùi của người dùng lọt vào đây sẽ kích lượt giao chữ
-                // thứ hai và gõ lặp chữ.
-                std::string keyUtf8Cho = Key::keySymToUTF8(currentSym);
-                if (!keyUtf8Cho.empty() && buffered_keys_.size() < MAX_BUFFERED_KEYS) {
-                    buffered_keys_.push_back({.sym = currentSym, .state = keyEvent.rawKey().states()});
-                }
-                keyEvent.filterAndAccept();
-                return;
-            }
             if (isBackspace(currentSym)) {
                 if (realtextLen.load(std::memory_order_acquire) > 0)
                     realtextLen.fetch_sub(1, std::memory_order_acq_rel);
