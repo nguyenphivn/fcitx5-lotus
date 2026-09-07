@@ -565,12 +565,25 @@ namespace fcitx {
         }
         is_deleting_.store(true, std::memory_order_release);
         if (isSurrText) {
+            // XOÁ VÀ GIAO CHỮ PHẢI ĐI CHUNG MỘT GÓI. Giao thức text-input của Wayland nói
+            // app áp dụng một lượt theo thứ tự: thay chữ đang soạn → xoá chữ xung quanh →
+            // chèn chữ mới. Tách hai lệnh ra hai gói thì Firefox áp dụng riêng từng cái và
+            // chữ cũ dính vào chữ mới ('vịiệt' thay vì 'việt').
+            //
+            // Bản ngủ chặn vô tình làm đúng: vòng lặp đứng im nên không có lần gửi nào ở
+            // giữa, hai lệnh nằm chung gói. Tức khoảng ngủ đó KHÔNG chờ gì cả. Bản hẹn giờ
+            // thả vòng lặp chạy giữa hai lệnh nên gói bị cắt đôi — đó là lỗi Firefox của
+            // Việc C. Đo: 98-99% lần thay chữ ở Firefox đi đường này (B39).
             ic_->deleteSurroundingText(-expected_backspaces_, expected_backspaces_);
             LOTUS_INFO("Delete using surrounding text");
-            // Chờ app xoá xong rồi mới giao chữ, và chờ tiếp cho chữ hiện ra rồi mới phát
-            // lại phím đã cất — đúng hai khoảng ngủ cũ, chỉ khác là không chặn vòng lặp.
-            cho_hien_ms_ = static_cast<int>(3 * utf8::length(addedPart));
-            batDauChoSurr(4 * expected_backspaces_);
+            if (!addedPart.empty()) {
+                ic_->commitString(addedPart);
+                LOTUS_INFO("Commit: " + addedPart);
+            }
+            // Chỉ phần DỌN mới hoãn được: chờ chữ hiện ra rồi mới phát lại phím đã cất.
+            pending_commit_string_.clear();
+            dang_cho_giao_ = true;
+            henMotLan(static_cast<int>(3 * utf8::length(addedPart)), [this]() { ketThucSurr(); });
             return;
         }
         send_backspace_uinput(expected_backspaces_);
@@ -871,26 +884,15 @@ namespace fcitx {
                 // ở đầu keyEvent() nhờ chốt dang_cho_giao_.
                 keyEvent.filterAndAccept();
 
+                // Cùng một luật với performReplacement: xoá và giao chữ đi CHUNG MỘT GÓI,
+                // không tách qua hẹn giờ. Xem chú thích dài ở nhánh isSurrText.
                 if (charsToDelete > 0) {
                     ic->deleteSurroundingText(-static_cast<int>(charsToDelete), static_cast<int>(charsToDelete));
-                    dang_cho_giao_ = true;
-                    henMotLan(static_cast<int>(4 * charsToDelete), [this, addedPart]() {
-                        if (!addedPart.empty()) {
-                            ic_->commitString(addedPart);
-                            LOTUS_INFO("Commit: " + addedPart);
-                        }
-                        ResetEngine(lotusEngine_.handle());
-                        dang_cho_giao_ = false;
-                        replayBufferedKeys();
-                    });
-                    return;
                 }
-
                 if (!addedPart.empty()) {
                     ic->commitString(addedPart);
                     LOTUS_INFO("Commit: " + addedPart);
                 }
-
                 ResetEngine(lotusEngine_.handle());
                 return;
             }
