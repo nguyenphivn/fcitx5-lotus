@@ -1369,6 +1369,15 @@ namespace fcitx {
         auto keys = std::move(buffered_keys_);
         buffered_keys_.clear();
         for (size_t i = 0; i < keys.size(); ++i) {
+            // ĐO TẠM — KHÔNG gửi lên thượng nguồn. Mốc micro-giây của từng phím phát lại.
+            // Đặt Ở ĐÂY chứ không ở đầu keyEvent: B35 đã đo được đồng hồ ở keyEvent tự nó
+            // làm Firefox gõ sai. Đối chứng dương nằm ngay trong số liệu: khoảng cách TRONG
+            // một tràng so với khoảng cách GIỮA hai tràng, cùng một dụng cụ.
+            LOTUS_INFO("REPLAY_US " +
+                       std::to_string(std::chrono::duration_cast<std::chrono::microseconds>(
+                                          std::chrono::steady_clock::now().time_since_epoch())
+                                          .count()) +
+                       " #" + std::to_string(i) + "/" + std::to_string(keys.size()));
             auto        sym     = static_cast<KeySym>(keys[i].sym);
             uint32_t    state   = keys[i].state;
             std::string keyUtf8 = Key::keySymToUTF8(sym);
