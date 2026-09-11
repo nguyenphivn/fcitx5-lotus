@@ -16,7 +16,6 @@ target_link_libraries(lotus_test_core PRIVATE
     Fcitx5::Module::Emoji
     Bamboo::Core
     Pthread::Pthread
-    X11::X11
 )
 
 # Helper macro to compile standalone headless integration test linked with Lotus engine.
