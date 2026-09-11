@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cerrno>
 #include <cstddef>
+#include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <memory>
@@ -145,6 +146,11 @@ int main(int argc, char** argv) {
     // "paced" is the control: same presses, but none of them arrive while a
     // replacement is still in flight, so nothing lands in buffered_keys_.
     const bool paced = argc > 1 && std::string(argv[1]) == "paced";
+
+    // Own a private socket name so a running fcitx5-lotus-server does not
+    // already hold the one the listener binds.
+    const std::string socketNamespace = "test-" + std::to_string(getpid());
+    setenv("LOTUS_SOCKET_NAMESPACE", socketNamespace.c_str(), 1);
 
     configureTestPaths("fcitx5-lotus-held-key-repeat");
     TestInstance       testInstance;
