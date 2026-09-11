@@ -9,6 +9,7 @@
 #include "lotus-server.h"
 #include "lotus-logger.h"
 
+#include <cstdlib>
 #include <cstring>
 #include <vector>
 
@@ -197,6 +198,16 @@ int main(int argc, char* argv[]) {
     mouse_flag_socket += "lotussocket-";
     mouse_flag_socket += target_user;
     mouse_flag_socket += "-mouse_socket";
+
+    // Same optional namespace as the addon's buildSocketPath(): lets a second
+    // server (a test or a dev build) run next to the installed one. Unset in
+    // production, where both sides use the well-known names.
+    if (const char* ns = std::getenv("LOTUS_SOCKET_NAMESPACE"); ns != nullptr && *ns != '\0') {
+        backspace_socket += '-';
+        backspace_socket += ns;
+        mouse_flag_socket += '-';
+        mouse_flag_socket += ns;
+    }
 
     const size_t max_socket_path_length = UNIX_PATH_MAX - 1;
     backspace_socket.resize(std::min(backspace_socket.length(), max_socket_path_length));
