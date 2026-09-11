@@ -142,20 +142,23 @@ namespace fcitx {
         std::unique_ptr<HandlerTableEntry<EventHandler>> cho_surr_watcher_;
         std::unique_ptr<EventSourceTime>                 cho_surr_timer_;
         uint64_t                                         cho_surr_bat_dau_ = 0;
+        uint64_t                                         cho_moc_giao_     = 0; // B33: lúc hẹn giao chữ (CLOCK_MONOTONIC, µs)
         bool                                             cho_dang_cho_     = false;
         std::string                                      cho_prefix_;   // phần từ giữ lại sau khi xoá
         std::string                                      cho_deleted_;  // phần phải biến mất
         std::string                                      cho_anh_luc_gui_;  // ảnh chụp lúc bắn phím xoá
         // v11: ảnh ĐÓNG BĂNG = quá hạn mà mọi tin đều y hệt ảnh lúc bắn (Edge thanh địa chỉ). Hai lần liền
         // → bỏ chờ, ngủ 8 ms × phím xoá như Slow; cứ `probeEvery` lần thăm dò lại một lần.
-        int                                              cho_so_tin_            = 0;      // số tin trong lần chờ này
-        bool                                             cho_tin_khac_          = false;  // có tin nào khác ảnh lúc bắn
-        bool                                             cho_anh_gui_cap_nhat_  = false;  // v12: ảnh lúc bắn còn thấy phần sắp xoá
-        int                                              cho_dong_bang_lien_tiep_ = 0;
-        bool                                             cho_dong_bang_         = false;
-        int                                              cho_dem_tham_do_       = 0;
-        int                                              cho_qua_han_lien_tiep_ = 0;  // v7: >=2 thì rút hạn chờ (Edge thanh địa chỉ không bao giờ khớp)
-        bool                                             cho_anh_tin_cay_ = true;  // false sau một lần quá hạn, true lại khi có tin khớp
+        int  cho_so_tin_              = 0;     // số tin trong lần chờ này
+        bool cho_tin_khac_            = false; // có tin nào khác ảnh lúc bắn
+        bool cho_anh_gui_cap_nhat_    = false; // v12: ảnh lúc bắn còn thấy phần sắp xoá
+        int  cho_dong_bang_lien_tiep_ = 0;
+        bool cho_dong_bang_           = false;
+        int  cho_dem_tham_do_         = 0;
+        int  cho_qua_han_lien_tiep_   = 0;     // v7: >=2 thì rút hạn chờ (Edge thanh địa chỉ không bao giờ khớp)
+        bool cho_anh_tin_cay_         = true;  // false sau một lần quá hạn, true lại khi có tin khớp
+        bool cho_hen_gio_             = false; // B33: đang chờ bằng hẹn giờ thay cho sleep_for (app không có ảnh ô)
+        int  cho_lan_doi_focus_       = 0;     // B33: số lần hẹn giờ nổ đúng lúc ô đang mất focus
         bool oDaXoaXong() const;
         void ketThucThayChu(const char* ly_do, bool tu_timer);
 

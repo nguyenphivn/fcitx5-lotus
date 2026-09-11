@@ -478,6 +478,12 @@ namespace fcitx {
         if (!cho_dang_cho_) {
             return;
         }
+        // B33: chờ hẹn giờ chỉ vài ms và giữ đúng khoảng mà bản sleep_for chờ để app kịp xoá; giao sớm
+        // ở đây là giao trước phím xoá. Mất focus ở đây gần như luôn là cú reset của Chromium X11 (vào
+        // lại ngay) ⇒ để đồng hồ tự giao; nó bỏ chữ nếu ô không quay lại.
+        if (cho_hen_gio_) {
+            return;
+        }
         ketThucThayChu("mat tieu diem", false);
     }
 
@@ -508,6 +514,7 @@ namespace fcitx {
             }
         }
         cho_dang_cho_ = false;
+        cho_hen_gio_  = false;
         if (!tu_timer && cho_surr_timer_) {
             cho_surr_timer_.reset();   // không reset từ trong chính callback của nó
         }
@@ -627,7 +634,7 @@ namespace fcitx {
             // v11: đóng băng → đường ngủ cũ nhưng với hằng số của Slow (8 × (N − 1), đo 60/60 trên
             // Firefox), không ngủ chồng: đo được: ngủ thêm 8 × N làm N=1 mất 24 ms, N=2 mất 34 ms.
             const int ngu_moi_phim = bo_cho_dong_bang ? std::max(sleepTime, engine_->config().waitSurroundingMinPerKeyMs.value()) : sleepTime;
-            std::this_thread::sleep_for(std::chrono::milliseconds(ngu_moi_phim * (expected_backspaces_ - 1)));
+            int       cho_ms       = ngu_moi_phim * (expected_backspaces_ - 1);
             // Validate surr cursor pos should match realtextLen after all BS applied
             const auto& surr = ic_->surroundingText();
             if (bo_cho_dong_bang) {
@@ -635,24 +642,55 @@ namespace fcitx {
             } else if (surr.isValid() && surr.cursor() == realtextLen.load(std::memory_order_acquire)) {
                 LOTUS_INFO("Skip retry");
             } else {
-                // Retry x3 (2 ms each), khi can (chromium,electron,...)
-                for (int retry = 0; retry < 3; ++retry) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(2));
-                    const auto& surr2 = ic_->surroundingText();
-                    if (surr2.isValid() && surr2.cursor() == realtextLen.load(std::memory_order_acquire)) {
-                        break;
-                    }
-                }
+                // Retry x3 (2 ms each), khi can (chromium,electron,...). Bản sleep_for chặn vòng lặp nên
+                // ảnh không đổi được giữa các lần thử: điều kiện trên đã sai thì cả ba lần đều sai, vòng
+                // này luôn chạy trọn 6 ms. Giữ đúng tổng thời gian đó.
+                cho_ms += 3 * 2;
             }
-            ic_->commitString(pending_commit_string_);
-            LOTUS_INFO("Commit: " + pending_commit_string_);
-            expected_backspaces_     = 0;
-            current_backspace_count_ = 0;
-            pending_commit_string_.clear();
-
             event.filterAndAccept(); // Filter out the final trigger backspace.
-            is_deleting_.store(false);
-            replayBufferedKeys();
+            if (cho_ms <= 0) {
+                ketThucThayChu("ngay", false);
+                return true;
+            }
+            // B33: sleep_for ở đây chặn event loop của CẢ fcitx5 (đo X11: 48/710 phím chặn ≥ 5 ms, lâu
+            // nhất 12,4 ms, 15 cụm chặn tổng 482 ms). Chờ đúng khoảng đó bằng hẹn giờ, trả loop về ngay.
+            // Phím tới trong lúc chờ vẫn vào buffered_keys_ vì is_deleting_ còn bật.
+            cho_dang_cho_      = true;
+            cho_hen_gio_       = true;
+            cho_lan_doi_focus_ = 0;
+            cho_surr_bat_dau_  = ::fcitx::now(CLOCK_MONOTONIC);
+            cho_moc_giao_      = cho_surr_bat_dau_ + (static_cast<uint64_t>(cho_ms) * 1000ULL);
+            cho_surr_timer_    = engine_->instance()->eventLoop().addTimeEvent(CLOCK_MONOTONIC, cho_surr_bat_dau_ + (static_cast<uint64_t>(cho_ms) * 1000ULL), 1000,
+                                                                               [this](EventSourceTime* t, uint64_t) {
+                                                                                if (!cho_dang_cho_ || !cho_hen_gio_) {
+                                                                                    return false;
+                                                                                }
+                                                                                if (!is_deleting_.load()) { // lượt thay chữ đã bị huỷ ở chỗ khác (phím điều hướng...)
+                                                                                    cho_dang_cho_ = false;
+                                                                                    cho_hen_gio_  = false;
+                                                                                    return false;
+                                                                                }
+                                                                                if (!ic_->hasFocus()) {
+                                                                                    // Chromium X11 rời ô rồi vào lại ngay (~0,3 ms): nổ đúng khe đó thì commitString
+                                                                                    // không tới nơi. Chờ thêm chút cho nó vào lại.
+                                                                                    if (++cho_lan_doi_focus_ <= 5) {
+                                                                                        t->setTime(::fcitx::now(CLOCK_MONOTONIC) + 2000);
+                                                                                        t->setOneShot();
+                                                                                        return true;
+                                                                                    }
+                                                                                    // Đổi cửa sổ thật trong lúc chờ: ô cũ không nhận chữ được nữa. Chỉ dọn trạng
+                                                                                    // thái của ô NÀY — is_deleting_ là biến chung, ô mới có thể đang thay chữ.
+                                                                                    LOTUS_INFO("Hen gio: o da mat focus, bo chu");
+                                                                                    cho_dang_cho_            = false;
+                                                                                    cho_hen_gio_             = false;
+                                                                                    expected_backspaces_     = 0;
+                                                                                    current_backspace_count_ = 0;
+                                                                                    pending_commit_string_.clear();
+                                                                                    return false;
+                                                                                }
+                                                                                ketThucThayChu("hen gio", true);
+                                                                                return false;
+                                                                               });
             return true;
         }
         return false;
@@ -1276,6 +1314,17 @@ namespace fcitx {
             }
         }
 
+        if (is_deleting_.load(std::memory_order_acquire) && cho_hen_gio_) {
+            // B33: phím tới trong lúc chờ hẹn giờ (gõ rất nhanh). Không cất rồi phát lại bằng commitString:
+            // Chromium X11 rơi mất chữ phát lại dồn sau chữ thay thế (đo 5 ms/phím: thanh địa chỉ Edge
+            // 15/30). Chờ NỐT phần còn lại, giao chữ, rồi xử lý phím này như thường — đúng thứ tự của bản
+            // sleep_for, chỉ chặn loop khi thật sự có phím chen vào, và chặn ngắn hơn.
+            const uint64_t bayGio = ::fcitx::now(CLOCK_MONOTONIC);
+            if (cho_moc_giao_ > bayGio) {
+                std::this_thread::sleep_for(std::chrono::microseconds(cho_moc_giao_ - bayGio));
+            }
+            ketThucThayChu("phim toi", false);
+        }
         if (is_deleting_.load(std::memory_order_acquire)) {
             if (isBackspace(currentSym)) {
                 if (realtextLen.load(std::memory_order_acquire) > 0)

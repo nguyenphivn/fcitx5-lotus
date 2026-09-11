@@ -175,7 +175,7 @@ int main(int argc, char** argv) {
     std::vector<std::string> screen;
     size_t                   lastCommit = 0;
 
-    auto press = [&]() {
+    auto                     press = [&]() {
         screen.emplace_back("d"); // the application sees the raw key first
         fcitx::KeyEvent event(context.get(), fcitx::Key(FcitxKey_d), false);
         engine.keyEvent(entry, event);
@@ -191,8 +191,7 @@ int main(int argc, char** argv) {
         }
     };
 
-    while (sent < kHeldPresses && !press()) {
-    }
+    while (sent < kHeldPresses && !press()) {}
 
     int cycles = 0;
     while (cycles < 8) {
@@ -212,11 +211,11 @@ int main(int argc, char** argv) {
             fcitx::KeyEvent back(context.get(), fcitx::Key(FcitxKey_BackSpace), false);
             engine.keyEvent(entry, back);
         }
+        pumpEventLoop(testInstance.instance, 50); // the commit runs from a timer
         pullCommit();
 
         if (paced) {
-            while (sent < kHeldPresses && !press()) {
-            }
+            while (sent < kHeldPresses && !press()) {}
         }
     }
     pullCommit();
@@ -232,8 +231,7 @@ int main(int argc, char** argv) {
     // Outside Smooth mode a held key keeps appending, so the window grows with
     // the number of presses. #472 reports that it stops instead.
     if (screen.size() < 3) {
-        reportFailure("held key accumulates", "at least 3 characters after " + std::to_string(sent) + " presses",
-                      "window shows '" + text + "'",
+        reportFailure("held key accumulates", "at least 3 characters after " + std::to_string(sent) + " presses", "window shows '" + text + "'",
                       "a held key never grows past the Telex cycle: handleUinputMode() resets the Bamboo engine "
                       "after every commit, so each repeat restarts from an empty word buffer");
         return 1;
