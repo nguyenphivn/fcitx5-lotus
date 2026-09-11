@@ -115,6 +115,7 @@ namespace fcitx {
         bool                    shouldCapitalize_      = false;
         bool                    isPrevPunctuation_     = false;
         int64_t                 lastDeactivateTime_    = 0;
+        int64_t                 xoaBiNgatLuc_          = 0; ///< deactivate() cắt ngang lượt thay chữ đang dở lúc nào (0 = không)
         bool                    wa_chromium_flag       = false;
         bool                    tracking_modifier_tap_ = false; ///< Selected modifier held, waiting for consecutive keyup
         bool                    macro_skip_            = false; ///< Macro disabled for the current word
