@@ -41,7 +41,6 @@ function(add_lotus_headless_test target source labels)
         Fcitx5::Module::Emoji
         Bamboo::Core
         Pthread::Pthread
-        X11::X11
     )
     add_test(NAME ${target} COMMAND ${target})
     set_tests_properties(${target} PROPERTIES LABELS "${labels}" TIMEOUT 20)

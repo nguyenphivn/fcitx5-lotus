@@ -8,7 +8,6 @@ target_link_libraries(lotus
   Fcitx5::Module::Emoji
 	Bamboo::Core
 	Pthread::Pthread
-	X11::X11
 )
 
 target_include_directories(lotus PRIVATE
