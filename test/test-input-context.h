@@ -2,7 +2,9 @@
 #pragma once
 
 #include <cstdlib>
+#include <dlfcn.h>
 #include <filesystem>
+#include <iostream>
 #include <memory>
 #include <string>
 #include <utility>
@@ -14,6 +16,7 @@
 #include <fcitx/inputpanel.h>
 #include <fcitx/instance.h>
 #include <fcitx/text.h>
+#include <fcitx-utils/event.h>
 
 /**
  * @brief Headless Mock InputContext for Fcitx5-Lotus Integration Testing.
@@ -182,3 +185,32 @@ struct TestInstance {
     char*           argv[3]        = {program, disableAll, nullptr};
     fcitx::Instance instance;
 };
+
+/**
+ * @brief Runs the instance's event loop for `ms` milliseconds.
+ *
+ * Tests call `keyEvent()` directly, so timers the engine schedules with
+ * `addTimeEvent()` (Smooth mode waits for the app between the last backspace
+ * and the commit) never fire unless the loop runs, as it does in real fcitx5.
+ *
+ * `EventLoop::exec()` cannot be used for this: after `exit()` an sd-event loop
+ * is finished and a second `exec()` throws (-ESTALE). sd-event's own
+ * single-step call is not exposed by fcitx, so it is looked up at runtime;
+ * libsystemd is already loaded by fcitx5-utils.
+ */
+inline void pumpEventLoop(fcitx::Instance& instance, int ms) {
+    using SdEventRun      = int (*)(void*, uint64_t);
+    static const auto run = reinterpret_cast<SdEventRun>(dlsym(RTLD_DEFAULT, "sd_event_run"));
+    if (std::string(fcitx::EventLoop::impl()) != "sd-event" || run == nullptr) {
+        std::cerr << "pumpEventLoop: unsupported event loop '" << fcitx::EventLoop::impl() << "'\n";
+        std::abort();
+    }
+    void*          handle = instance.eventLoop().nativeHandle();
+    const uint64_t end    = fcitx::now(CLOCK_MONOTONIC) + (static_cast<uint64_t>(ms) * 1000ULL);
+    for (uint64_t t = fcitx::now(CLOCK_MONOTONIC); t < end; t = fcitx::now(CLOCK_MONOTONIC)) {
+        if (run(handle, end - t) < 0) {
+            std::cerr << "pumpEventLoop: sd_event_run failed\n";
+            std::abort();
+        }
+    }
+}

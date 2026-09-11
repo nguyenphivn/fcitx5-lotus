@@ -185,6 +185,7 @@ int main() {
         if (!send(engine, entry, *context, FcitxKey_BackSpace, i + 1 == backspaces))
             return 1;
     }
+    pumpEventLoop(testInstance.instance, 50); // the commit and the replay run from a timer
 
     int replayBackspaces = 0;
     if (!listener.receive(replayBackspaces, "buffered key was not replayed after deletion", "buffered x replay starts another replacement request within 2000 ms"))
@@ -198,6 +199,7 @@ int main() {
         if (!send(engine, entry, *context, FcitxKey_BackSpace, i + 1 == replayBackspaces))
             return 1;
     }
+    pumpEventLoop(testInstance.instance, 50);
 
     const std::vector<std::string> expected{"á", "ã"};
     if (context->commits() != expected) {
