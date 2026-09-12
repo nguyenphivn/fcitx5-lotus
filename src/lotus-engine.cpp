@@ -14,7 +14,6 @@
 #include "lotus-monitor.h"
 #include "lotus-utils.h"
 #include "lotus-icon-resolver.h"
-#include "ack-apps.h"
 #include <optional>
 #include <sys/socket.h>
 #include <utility>
@@ -460,36 +459,6 @@ namespace fcitx {
             setMode(targetMode, event.inputContext());
         }
 
-        // Workaround for chromium wayland issue where suggestions cause a doubled
-        // first character. Forwarding may prevent BS from being sent
-        // to the client.
-        //
-        // Note that with chromium x11 we can't do anything to fixes this because
-        // it not support surrounding text so can't know when it show suggestions
-        //
-        // TODO: Properly fixes instead ugly WA
-        state->wa_chromium_flag = false;
-
-        state->waitAck_ = false;
-        if (*config_.fixUinputWithAck) {
-            if (isUinputMode(targetMode)) {
-#if __cplusplus >= 202002L
-                std::ranges::transform(appName, appName.begin(), ::tolower);
-#else
-                std::transform(appName.begin(), appName.end(), appName.begin(), ::tolower);
-#endif
-                for (const auto& ackApp : ack_apps) {
-                    if (appName.find(ackApp) != std::string::npos) {
-                        if (is_dbus) {
-                            state->waitAck_ = true;
-                            LOTUS_INFO(ackApp + " detected, waiting for ack");
-                        }
-                        state->wa_chromium_flag = true;
-                        break;
-                    }
-                }
-            }
-        }
         if (event.type() == EventType::InputContextFocusIn && is_dbus && !surrvalid) {
             LOTUS_INFO("Skip clearAllBuffers");
         } else if (surrvalid && !state->oldPreBuffer_.empty() && (now_ms() - state->lastDeactivateTime_) >= 100) {
