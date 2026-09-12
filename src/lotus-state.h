@@ -108,7 +108,6 @@ namespace fcitx {
         std::string             pending_commit_string_;
         std::string             emojiBuffer_;
         std::vector<EmojiEntry> emojiCandidates_;
-        bool                    waitAck_ = false;
         std::vector<KeyEntry>   buffered_keys_; ///< Keystrokes buffered during replacement
         bool                    isPrevSpace_           = false;
         bool                    isPrevHyphen_          = false;
@@ -116,7 +115,6 @@ namespace fcitx {
         bool                    isPrevPunctuation_     = false;
         int64_t                 lastDeactivateTime_    = 0;
         int64_t                 deletionInterruptedAt_ = 0; ///< when deactivate() cut an in-flight replacement (0 = none)
-        bool                    wa_chromium_flag       = false;
         bool                    tracking_modifier_tap_ = false; ///< Selected modifier held, waiting for consecutive keyup
         bool                    macro_skip_            = false; ///< Macro disabled for the current word
 

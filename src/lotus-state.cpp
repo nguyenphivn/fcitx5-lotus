@@ -133,11 +133,6 @@ namespace fcitx {
                 send(uinput_client_fd_, &count, sizeof(count), MSG_NOSIGNAL);
             }
         }
-
-        if (waitAck_) {
-            LOTUS_INFO("Waiting for ack");
-            std::this_thread::sleep_for(std::chrono::milliseconds(count * 5));
-        }
     }
 
     bool LotusState::isAutofillCertain(const SurroundingText& s) {
@@ -914,25 +909,20 @@ namespace fcitx {
         std::string      deletedPart;
         std::string      addedPart;
 
-        if (wa_chromium_flag)
-            keyEvent.filterAndAccept();
-
         if (compareAndSplitStrings(oldPreBuffer_, preeditStr, deletedPart, addedPart) != 0) {
             if (deletedPart.empty()) {
                 bool isCommit           = false;
                 bool wasAutoCapitalized = (currentSym != keyEvent.rawKey().sym());
                 if (!addedPart.empty()) {
                     oldPreBuffer_ = preeditStr;
-                    if (wa_chromium_flag || wasAutoCapitalized || addedPart != keyUtf8) {
+                    if (wasAutoCapitalized || addedPart != keyUtf8) {
                         ic_->commitString(addedPart);
                         LOTUS_INFO("Commit: " + addedPart);
-                        if (!wa_chromium_flag) {
-                            keyEvent.filterAndAccept();
-                            isCommit = true;
-                        }
+                        keyEvent.filterAndAccept();
+                        isCommit = true;
                     }
                 }
-                if (!wa_chromium_flag && !isCommit) {
+                if (!isCommit) {
                     keyEvent.forward();
                 }
             } else {
@@ -949,8 +939,7 @@ namespace fcitx {
                     is_deleting_.store(false, std::memory_order_release);
                 }
 
-                if (!wa_chromium_flag)
-                    keyEvent.filterAndAccept();
+                keyEvent.filterAndAccept();
                 performReplacement(deletedPart, addedPart);
                 oldPreBuffer_ = preeditStr;
             }
