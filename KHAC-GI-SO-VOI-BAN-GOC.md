@@ -37,7 +37,9 @@ Bản gốc `dev` chạy 9 bài. Bản này 11, vì có thêm hai bài kiểm �
 
 ## Nhóm A — lỗi gặp thật, đã báo, tác giả từ chối vá
 
-Ba miếng này sẽ không bao giờ về upstream. Chúng là lý do chính để giữ fork.
+Ba miếng này tác giả đã đóng issue mà không sửa mã. Chúng là lý do chính để giữ fork. Riêng
+`f9ccb50` thì cửa vẫn hé: tác giả phản hồi tiếp và nêu một điểm ĐÚNG, xem phần cảnh báo ngay
+dưới.
 
 ### `f9ccb50` — máy chủ đừng tự bật chạm-để-bấm cho touchpad
 
@@ -52,8 +54,25 @@ thì Lotus reset từ đang gõ dở.
 bằng số lần ấn hẳn. Nếu mặc định của thiết bị vốn là bật thì con số đã không đổi.
 
 **Upstream:** [issue #494](https://github.com/LotusInputMethod/fcitx5-lotus/issues/494) — đóng
-sau 3 giây, gắn nhãn COMPLETED, không sửa dòng mã nào. Tác giả cho rằng chạm touchpad và ấn
-chuột là một. Điều đó chỉ đúng khi người dùng BẬT chạm-để-bấm.
+sau 3 giây, gắn nhãn COMPLETED, không sửa dòng mã nào.
+
+**⚠️ Miếng vá này CÓ LỖ, phải biết trước khi dùng.** Tác giả phản hồi lần hai rằng vẫn có người
+dùng BẬT chạm-để-bấm, và điều đó đúng. Máy chủ mở ngữ cảnh libinput riêng, mà cài đặt của
+desktop không lan sang ngữ cảnh đó. Bỏ hai dòng ép bật thì ngữ cảnh riêng rơi về mặc định phần
+cứng, tức tắt — nên người ĐÃ BẬT chạm-để-bấm sẽ không còn được Lotus nhận cú chạm nữa.
+
+Lỗ đó hẹp, và đây là chỗ hẹp chính xác: Lotus vốn đã reset khi mất focus
+(`src/lotus-engine.cpp`, nhánh `InputContextFocusOut`), nên chạm sang cửa sổ khác hay ô khác
+vẫn reset đúng. Tín hiệu chuột chỉ làm được việc riêng trong đúng một tình huống — **chạm ngay
+trong chính ô đang gõ để dời con trỏ**, thứ fcitx5 không báo.
+
+Nên cả hai phía đều đúng một nửa: ép bật thì người đã tắt bị nuốt chữ, không ép bật thì người đã
+bật mất reset khi dời con trỏ trong cùng ô. Máy chủ không đọc được cài đặt của desktop nên
+**không có mặc định nào đúng cho cả hai**. Lời giải đúng là một khoá cấu hình trong `lotus.conf`,
+mặc định giữ như bản gốc để không ai bị hồi quy. Chưa làm, đang trong hàng đợi.
+
+Nói rõ hệ quả cho bản này: máy nào **tắt** chạm-để-bấm thì dùng miếng vá này là đúng. Máy nào
+**bật** thì nên bỏ miếng vá này ra, nếu không sẽ mất reset khi bấm dời con trỏ trong cùng một ô.
 
 ### `770f02e` — bỏ chờ retry vô ích ở app không có surrounding text
 
