@@ -641,10 +641,16 @@ namespace fcitx {
                 LOTUS_INFO("Skip retry (frozen)");   // v12: thử lại 3 × 2 ms là vô ích khi ảnh đóng băng
             } else if (surr.isValid() && surr.cursor() == realtextLen.load(std::memory_order_acquire)) {
                 LOTUS_INFO("Skip retry");
+            } else if (!ic_->capabilityFlags().test(CapabilityFlag::SurroundingText)) {
+                // App KHÔNG KHAI năng lực surrounding text (đo 12/09: gnome-terminal và Chromium trên
+                // X11 đều cap=0) ⇒ nó sẽ không bao giờ gửi ảnh, chờ bao lâu cũng vô ích. Phân biệt với
+                // "có khai mà lần đầu báo invalid": trường hợp đó rơi xuống nhánh dưới, chờ đủ như cũ.
+                LOTUS_INFO("Skip retry (no surrounding capability)");
             } else {
-                // Retry x3 (2 ms each), khi can (chromium,electron,...). Bản sleep_for chặn vòng lặp nên
-                // ảnh không đổi được giữa các lần thử: điều kiện trên đã sai thì cả ba lần đều sai, vòng
-                // này luôn chạy trọn 6 ms. Giữ đúng tổng thời gian đó.
+                // Retry x3 (2 ms each), khi can (chromium,electron,...). App có khai mà chưa valid thì
+                // đúng là phải cho nó thời gian. Ở đây chờ bằng hẹn giờ chứ không sleep_for, nên vòng lặp
+                // sự kiện vẫn chạy và ảnh MỚI thật sự tới được trong 6 ms này — khác bản sleep_for, nơi
+                // ba lần thử đều đọc lại đúng một ảnh cũ vì loop bị chặn.
                 cho_ms += 3 * 2;
             }
             event.filterAndAccept(); // Filter out the final trigger backspace.
