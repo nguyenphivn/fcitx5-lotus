@@ -9,6 +9,7 @@
 #include "lotus-utils.h"
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 
@@ -58,7 +59,15 @@ static bool authenticateMouseSocketPeer(int sock, std::string& out_exe_path) {
 
     out_exe_path = exe_path;
 
-    return strcmp(exe_path, FCITX5_LOTUS_SERVER_PATH) == 0;
+    // Cặp addon + máy chủ chạy riêng (LOTUS_SOCKET_NAMESPACE) nằm ngoài mọi tiền tố cài đặt,
+    // nên đường dẫn CMake truyền vào không khớp. Biến này chỉ đọc từ môi trường của chính
+    // addon — tức phiên của người dùng — và socket vốn đã riêng theo người dùng, nên nó
+    // không mở thêm cửa nào cho tiến trình của người khác.
+    const char* mong = std::getenv("LOTUS_SERVER_PATH");
+    if (mong == nullptr || *mong == '\0') {
+        mong = FCITX5_LOTUS_SERVER_PATH;
+    }
+    return strcmp(exe_path, mong) == 0;
 }
 
 void mousePressResetThread() {
