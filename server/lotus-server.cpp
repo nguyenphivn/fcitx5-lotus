@@ -9,6 +9,7 @@
 #include "lotus-server.h"
 #include "lotus-logger.h"
 
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <vector>
@@ -275,9 +276,21 @@ int main(int argc, char* argv[]) {
     sigaction(SIGTERM, &sa, nullptr);
     sigaction(SIGINT, &sa, nullptr);
 
+    // Backspaces after the first go out 5 ms apart, on a deadline. Waiting for a
+    // 5 ms poll timeout instead restarted the wait on every libinput event, so
+    // while the user kept typing faster than one key per 5 ms the pending
+    // backspaces stalled until they paused (measured: 4 backspaces took 50 ms
+    // at 5 ms per key), and the keys typed in between had to be buffered.
+    using Clock = std::chrono::steady_clock;
+    Clock::time_point next_backspace{};
+
     while (g_running.load(std::memory_order_acquire)) {
-        int poll_timeout = (pending_backspaces > 0) ? 5 : -1;
-        int ret          = poll(fds.data(), fds.size(), poll_timeout);
+        int poll_timeout = -1;
+        if (pending_backspaces > 0) {
+            const auto wait = std::chrono::ceil<std::chrono::milliseconds>(next_backspace - Clock::now()).count();
+            poll_timeout    = wait > 0 ? static_cast<int>(wait) : 0;
+        }
+        int ret = poll(fds.data(), fds.size(), poll_timeout);
 
         if (ret < 0) {
             if (errno == EINTR) {
@@ -286,11 +299,10 @@ int main(int argc, char* argv[]) {
             break;
         }
 
-        if (ret == 0) {
-            if (pending_backspaces > 0) {
-                uinput.send_backspace();
-                --pending_backspaces;
-            }
+        if (pending_backspaces > 0 && Clock::now() >= next_backspace) {
+            uinput.send_backspace();
+            --pending_backspaces;
+            next_backspace = Clock::now() + std::chrono::milliseconds(5);
         }
 
         libinput_dispatch(li_ctx.get_li());
@@ -347,6 +359,7 @@ int main(int argc, char* argv[]) {
             } else {
                 pending_backspaces += count - 1;
                 uinput.send_backspace();
+                next_backspace = Clock::now() + std::chrono::milliseconds(5);
             }
         }
 
