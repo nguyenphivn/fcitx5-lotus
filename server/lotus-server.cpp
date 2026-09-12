@@ -436,22 +436,10 @@ int main(int argc, char* argv[]) {
                     struct libinput_device* dev  = libinput_event_get_device(event);
                     const char*             name = libinput_device_get_name(dev);
                     LotusLogger::instance().info("Device added: " + std::string(name));
-                    // ĐỪNG bật chạm-để-bấm ở đây. Ngữ cảnh libinput này là RIÊNG của máy chủ,
-                    // nên bật ở đây KHÔNG làm touchpad của người dùng chạm-để-bấm được — nó chỉ
-                    // khiến MÁY CHỦ coi mọi cú chạm nhẹ là một cú bấm chuột, rồi báo addon xoá
-                    // sạch từ đang gõ dở. Người dùng tắt chạm-để-bấm trong cài đặt hệ thống vẫn
-                    // dính, vì cài đặt đó nằm ở compositor chứ không nằm trong thiết bị.
-                    //
-                    // Đo 12/09/2026 trên HP/CachyOS/KDE (touchpad ELAN07BA, KDE đã TẮT
-                    // chạm-để-bấm): 7 động tác thật (5 quệt nhẹ + 2 ấn hẳn) sinh ra 16 lần
-                    // "Mouse click detected", kéo theo "Need engine reset" + "Clear all buffers".
-                    // Triệu chứng người dùng thấy: gõ "Traix" trong Lark ra "Traix" chứ không ra
-                    // "Trãi" — chữ dấu cuối rơi ra ngoài vì trí nhớ về từ vừa bị xoá. Chập chờn
-                    // vì phụ thuộc lòng bàn tay có chạm phải hay không. RADAR B43ar.
-                    //
-                    // Bỏ hai dòng này thì libinput dùng mặc định của thiết bị (tắt với hầu hết
-                    // touchpad), nên chỉ cú ẤN HẲN XUỐNG mới thành cú bấm — đúng thứ người dùng
-                    // hiểu là "bấm chuột", và tính năng ngắt-từ-khi-bấm-chuột vẫn chạy.
+                    if (libinput_device_config_tap_get_finger_count(dev) > 0) {
+                        libinput_device_config_tap_set_enabled(dev, LIBINPUT_CONFIG_TAP_ENABLED);
+                        libinput_device_config_tap_set_button_map(dev, LIBINPUT_CONFIG_TAP_MAP_LRM);
+                    }
                 }
                 libinput_event_destroy(event);
             }
