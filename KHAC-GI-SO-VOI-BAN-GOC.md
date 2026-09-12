@@ -14,7 +14,7 @@ cd fcitx5-lotus
 git checkout ban-dung
 ```
 
-`ban-dung` = `upstream/dev` + đúng **19 miếng vá**, không thiếu commit nào của tác giả.
+`ban-dung` = `upstream/dev` + đúng **18 miếng vá**, không thiếu commit nào của tác giả.
 
 Mấy nhánh khác là nhánh làm việc, **đừng lấy**:
 
@@ -37,42 +37,48 @@ Bản gốc `dev` chạy 9 bài. Bản này 11, vì có thêm hai bài kiểm �
 
 ## Nhóm A — lỗi gặp thật, đã báo, tác giả từ chối vá
 
-Ba miếng này tác giả đã đóng issue mà không sửa mã. Chúng là lý do chính để giữ fork. Riêng
-`f9ccb50` thì cửa vẫn hé: tác giả phản hồi tiếp và nêu một điểm ĐÚNG, xem phần cảnh báo ngay
-dưới.
+Hai miếng này tác giả đã đóng issue mà không sửa mã, và cả hai vẫn đứng vững. Mục thứ ba bên
+dưới là một miếng vá **đã bị rút lại** vì mình báo sai — giữ lại để khỏi ai làm lại.
 
-### `f9ccb50` — máy chủ đừng tự bật chạm-để-bấm cho touchpad
+### ĐÃ RÚT LẠI — `f9ccb50` máy chủ đừng tự bật chạm-để-bấm (issue #494)
 
-**Triệu chứng:** đang gõ mà tay quệt nhẹ lên touchpad thì mất dấu. Gõ `Nguyễn Trãi` ra
-`Nguyễn Traix`. Chập chờn nên rất khó lần ra, ban đầu còn tưởng lỗi bỏ dấu.
+**Miếng vá này đã bị gỡ khỏi `ban-dung`.** Giữ mục này lại làm bài học, đừng làm lại.
 
-**Nguyên nhân:** máy chủ mở ngữ cảnh libinput riêng rồi **ép bật** chạm-để-bấm trong đó, kể cả
-khi người dùng đã tắt tính năng này ở hệ thống. Mọi cú quệt tay thành "bấm chuột", mà bấm chuột
-thì Lotus reset từ đang gõ dở.
+Mình báo issue #494 với tiền đề "máy mình tắt chạm-để-bấm", rồi viết thêm một bình luận phản biện
+cũng dựa trên tiền đề đó. **Tiền đề đó SAI.** Chủ máy chưa bao giờ tắt chạm-để-bấm; mình tự suy
+ra mà không hỏi. Tác giả upstream đúng ngay từ phản hồi đầu tiên.
 
-**Đo:** 7 động tác trên touchpad. Trước khi vá: 16 lần ghi nhận bấm. Sau khi vá: 2 lần, đúng
-bằng số lần ấn hẳn. Nếu mặc định của thiết bị vốn là bật thì con số đã không đổi.
+Đo lại bằng hai dụng cụ, mỗi cái nhìn một ngữ cảnh:
 
-**Upstream:** [issue #494](https://github.com/LotusInputMethod/fcitx5-lotus/issues/494) — đóng
-sau 3 giây, gắn nhãn COMPLETED, không sửa dòng mã nào.
+| Nơi | chạm-để-bấm | tắt-khi-đang-gõ |
+| --- | --- | --- |
+| KWin, tức desktop thật (`busctl` hỏi `org.kde.KWin`) | BẬT, và mặc định cũng BẬT | BẬT |
+| Ngữ cảnh libinput riêng dựng y như máy chủ, không ép gì | TẮT | BẬT |
 
-**⚠️ Miếng vá này CÓ LỖ, phải biết trước khi dùng.** Tác giả phản hồi lần hai rằng vẫn có người
-dùng BẬT chạm-để-bấm, và điều đó đúng. Máy chủ mở ngữ cảnh libinput riêng, mà cài đặt của
-desktop không lan sang ngữ cảnh đó. Bỏ hai dòng ép bật thì ngữ cảnh riêng rơi về mặc định phần
-cứng, tức tắt — nên người ĐÃ BẬT chạm-để-bấm sẽ không còn được Lotus nhận cú chạm nữa.
+Nên hai dòng ép bật tap trong máy chủ đang làm ngữ cảnh riêng **KHỚP** với desktop, chứ không
+phải ghi đè lên nó. Gỡ chúng đi mới là làm Lotus lệch khỏi phần còn lại của máy: người dùng chạm
+để dời con trỏ, hệ thống bấm thật, mà Lotus không reset từ đang gõ dở.
 
-Lỗ đó hẹp, và đây là chỗ hẹp chính xác: Lotus vốn đã reset khi mất focus
-(`src/lotus-engine.cpp`, nhánh `InputContextFocusOut`), nên chạm sang cửa sổ khác hay ô khác
-vẫn reset đúng. Tín hiệu chuột chỉ làm được việc riêng trong đúng một tình huống — **chạm ngay
-trong chính ô đang gõ để dời con trỏ**, thứ fcitx5 không báo.
+**Sai ở đâu, cụ thể:** số đo "16 cú bấm xuống còn 2" là đúng, nhưng mình rút ra kết luận sai từ
+nó. Nó chỉ chứng minh **mặc định của THIẾT BỊ** là tắt tap. Nó không nói gì về **cài đặt hiệu lực
+của người dùng**, thứ nằm trong ngữ cảnh riêng của compositor và không có cách nào suy ra từ ngữ
+cảnh khác. Mình còn suy thêm một tầng nữa cũng sai: thấy `kcminputrc` không có khoá `TapToClick`
+rồi kết luận là tắt, trong khi không có khoá nghĩa là **theo mặc định của KDE**, mà mặc định đó
+là BẬT.
 
-Nên cả hai phía đều đúng một nửa: ép bật thì người đã tắt bị nuốt chữ, không ép bật thì người đã
-bật mất reset khi dời con trỏ trong cùng ô. Máy chủ không đọc được cài đặt của desktop nên
-**không có mặc định nào đúng cho cả hai**. Lời giải đúng là một khoá cấu hình trong `lotus.conf`,
-mặc định giữ như bản gốc để không ai bị hồi quy. Chưa làm, đang trong hàng đợi.
+**Bài học, áp cho mọi lần sau:** cài đặt hiệu lực của người dùng thì **hỏi chủ máy hoặc hỏi
+compositor**, đừng suy từ tệp cấu hình và đừng suy từ mặc định của thiết bị. Câu lệnh hỏi thẳng:
 
-Nói rõ hệ quả cho bản này: máy nào **tắt** chạm-để-bấm thì dùng miếng vá này là đúng. Máy nào
-**bật** thì nên bỏ miếng vá này ra, nếu không sẽ mất reset khi bấm dời con trỏ trong cùng một ô.
+```
+busctl --user get-property org.kde.KWin \
+  /org/kde/KWin/InputDevice/eventN org.kde.KWin.InputDevice tapToClick
+```
+
+**Triệu chứng gốc vẫn chưa có lời giải chắc chắn.** Chủ máy báo gõ `Nguyễn Trãi` trong Lark ra
+`Nguyễn Traix`, chập chờn. Giả thuyết còn lại mạnh nhất: Lark chạy trong Firefox, mà lúc đó luật
+đặt `firefox=3` tức Super Smooth — chế độ uinput duy nhất bị tắt lá chắn chống nhân đôi chữ. Đó
+đúng là thứ sau này gây lặp chữ ở thanh địa chỉ Firefox và đã sửa bằng `firefox=1`. Nếu vậy thì
+touchpad vô can từ đầu. **Chưa kiểm chứng**, cần chủ máy gõ lại trong Lark rồi báo.
 
 ### `770f02e` — bỏ chờ retry vô ích ở app không có surrounding text
 
