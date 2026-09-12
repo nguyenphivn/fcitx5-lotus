@@ -19,6 +19,14 @@
 #include <unistd.h>
 #include <limits.h>
 
+// Đường dẫn máy chủ do CMake truyền vào (giống FCITX5_LOTUS_SETTINGS_PATH). Viết cứng
+// "/usr/bin/..." thì mọi bản cài ngoài tiền tố mặc định — bản dựng tại chỗ, /usr/local,
+// Nix, distro dùng bindir khác — đều bị TỪ CHỐI im lặng: addon nối lại mỗi giây mãi mãi
+// và tính năng "bấm chuột thì ngắt từ đang gõ" chết mà không có dấu hiệu gì ở giao diện.
+#ifndef FCITX5_LOTUS_SERVER_PATH
+#define FCITX5_LOTUS_SERVER_PATH "/usr/bin/fcitx5-lotus-server"
+#endif
+
 std::thread mouse_thread = std::thread();
 
 static bool authenticateMouseSocketPeer(int sock, std::string& out_exe_path) {
@@ -50,7 +58,7 @@ static bool authenticateMouseSocketPeer(int sock, std::string& out_exe_path) {
 
     out_exe_path = exe_path;
 
-    return strcmp(exe_path, "/usr/bin/fcitx5-lotus-server") == 0;
+    return strcmp(exe_path, FCITX5_LOTUS_SERVER_PATH) == 0;
 }
 
 void mousePressResetThread() {
