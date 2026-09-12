@@ -284,6 +284,20 @@ int main(int argc, char* argv[]) {
     using Clock = std::chrono::steady_clock;
     Clock::time_point next_backspace{};
 
+    // Khoảng cách giữa hai phím xoá. Mặc định 5 ms như cũ; đặt LOTUS_BACKSPACE_GAP_MS
+    // để đo thử mức khác mà không phải dựng lại mã. Nhận 0..50, ngoài khoảng thì bỏ qua.
+    int backspace_gap_ms = 5;
+    if (const char* g = std::getenv("LOTUS_BACKSPACE_GAP_MS"); g != nullptr && *g != '\0') {
+        char*     end = nullptr;
+        const long v  = std::strtol(g, &end, 10);
+        if (end != nullptr && *end == '\0' && v >= 0 && v <= 50) {
+            backspace_gap_ms = static_cast<int>(v);
+            LotusLogger::instance().info("Backspace gap set to " + std::to_string(backspace_gap_ms) + " ms");
+        } else {
+            LotusLogger::instance().warn("Ignoring invalid LOTUS_BACKSPACE_GAP_MS: " + std::string(g));
+        }
+    }
+
     while (g_running.load(std::memory_order_acquire)) {
         int poll_timeout = -1;
         if (pending_backspaces > 0) {
@@ -302,7 +316,7 @@ int main(int argc, char* argv[]) {
         if (pending_backspaces > 0 && Clock::now() >= next_backspace) {
             uinput.send_backspace();
             --pending_backspaces;
-            next_backspace = Clock::now() + std::chrono::milliseconds(5);
+            next_backspace = Clock::now() + std::chrono::milliseconds(backspace_gap_ms);
         }
 
         libinput_dispatch(li_ctx.get_li());
@@ -359,7 +373,7 @@ int main(int argc, char* argv[]) {
             } else {
                 pending_backspaces += count - 1;
                 uinput.send_backspace();
-                next_backspace = Clock::now() + std::chrono::milliseconds(5);
+                next_backspace = Clock::now() + std::chrono::milliseconds(backspace_gap_ms);
             }
         }
 
