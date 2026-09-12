@@ -450,6 +450,12 @@ namespace fcitx {
             const auto& surr = ic_->surroundingText();
             if (surr.isValid() && surr.cursor() == realtextLen.load(std::memory_order_acquire)) {
                 LOTUS_INFO("Skip retry");
+            } else if (!ic_->capabilityFlags().test(CapabilityFlag::SurroundingText)) {
+                // App KHÔNG KHAI năng lực surrounding text (đo trên X11: gnome-terminal và Chromium
+                // đều cap=0) ⇒ nó sẽ không bao giờ gửi ảnh, nên điều kiện dừng của vòng thử lại không
+                // bao giờ đúng được, chờ bao lâu cũng vậy. App CÓ khai mà lần đầu báo invalid vẫn rơi
+                // xuống nhánh dưới và được chờ đủ như cũ.
+                LOTUS_INFO("Skip retry (no surrounding capability)");
             } else {
                 // Retry x3 (2 ms each), khi can (chromium,electron,...)
                 for (int retry = 0; retry < 3; ++retry) {
