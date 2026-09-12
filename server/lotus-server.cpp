@@ -275,10 +275,20 @@ int main(int argc, char* argv[]) {
     sigaction(SIGTERM, &sa, nullptr);
     sigaction(SIGINT, &sa, nullptr);
 
-    // Khoảng cách giữa hai phím xoá, mặc định 5 ms như cũ. Đặt LOTUS_BACKSPACE_GAP_MS để đổi mà
-    // không phải dựng lại mã; nhận 0..50, ngoài khoảng thì bỏ qua. Đo 12/09 trên Konsole (nhịp gõ
-    // 50 và 5 ms mỗi phím), ô soạn Edge và thanh địa chỉ Edge: mức 2 ms đều 8/8, không tệ hơn 5 ms.
-    int backspace_gap_ms = 5;
+    // Khoảng cách giữa hai phím xoá. Đặt LOTUS_BACKSPACE_GAP_MS để đổi mà không phải dựng lại mã;
+    // nhận 0..50, ngoài khoảng thì bỏ qua.
+    //
+    // Mặc định hạ 5 -> 0 (12/09/2026). Đo trên bốn đích — Konsole, ô soạn Edge, Firefox, Edge chạy
+    // qua XWayland — ở cả nhịp gõ 50 ms và 5 ms mỗi phím: mức 2 ms ra 2,18-2,21 ms, mức 1 ms ra
+    // 1,18-1,21, mức 0 ra 0,08-0,10, TẤT CẢ gõ đúng 8/8. Mức càng nhỏ càng đều (đỉnh 4,74 / 1,45 /
+    // 0,18 ms ở nhịp nhanh).
+    //
+    // Đánh đổi phải biết: vòng lặp chỉ bắn phím xoá khi poll HẾT GIỜ mà không có gì xảy ra, nên con
+    // số này là yêu cầu "khe im lặng" trên seat0. Đặt 0 tức bỏ hẳn yêu cầu đó: máy chủ bắn phím xoá
+    // bất kể người dùng có đang bấm phím hay không. Bộ đo gõ ~25 ms mỗi phím (bàn phím ảo tốn sẵn
+    // ~20 ms) nên KHÔNG chạm tới ca đó — bằng chứng cho mức 0 là dùng tay thật, không phải số đo.
+    // Mức lùi có số liệu đỡ là 2 ms. Dấu hiệu phải quay lại: sót chữ hoặc thừa chữ khi gõ nhanh.
+    int backspace_gap_ms = 0;
     if (const char* g = std::getenv("LOTUS_BACKSPACE_GAP_MS"); g != nullptr && *g != '\0') {
         char*      end = nullptr;
         const long v   = std::strtol(g, &end, 10);
