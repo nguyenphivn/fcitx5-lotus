@@ -450,6 +450,10 @@ namespace fcitx {
             const auto& surr = ic_->surroundingText();
             if (surr.isValid() && surr.cursor() == realtextLen.load(std::memory_order_acquire)) {
                 LOTUS_INFO("Skip retry");
+            } else if (!surr.isValid()) {
+                // App không cung cấp surrounding text (terminal, Chromium X11) ⇒ điều kiện dừng của vòng
+                // retry không bao giờ đúng được, chờ bao lâu cũng vậy. Bỏ hẳn 6 ms này.
+                LOTUS_INFO("Skip retry (no surrounding)");
             } else {
                 // Retry x3 (2 ms each), khi can (chromium,electron,...)
                 for (int retry = 0; retry < 3; ++retry) {
