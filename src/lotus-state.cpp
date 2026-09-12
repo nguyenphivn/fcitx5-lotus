@@ -641,10 +641,6 @@ namespace fcitx {
                 LOTUS_INFO("Skip retry (frozen)");   // v12: thử lại 3 × 2 ms là vô ích khi ảnh đóng băng
             } else if (surr.isValid() && surr.cursor() == realtextLen.load(std::memory_order_acquire)) {
                 LOTUS_INFO("Skip retry");
-            } else if (!surr.isValid()) {
-                // App không cung cấp ảnh văn bản (terminal, Chromium X11) ⇒ điều kiện thử lại không bao
-                // giờ đúng được, dù chờ bao lâu. Bản sleep_for vẫn trả trọn 6 ms cho vòng này; ở đây bỏ.
-                LOTUS_INFO("Skip retry (no surrounding)");
             } else {
                 // Retry x3 (2 ms each), khi can (chromium,electron,...). Bản sleep_for chặn vòng lặp nên
                 // ảnh không đổi được giữa các lần thử: điều kiện trên đã sai thì cả ba lần đều sai, vòng
