@@ -264,6 +264,7 @@ namespace fcitx {
             std::filesystem::create_directories(configDir);
         }
         reloadConfig();
+        realMode = config_.mode.value();
         instance_->inputContextManager().registerProperty("LotusState", &factory_);
         appRulesPath_ = configDir + "/lotus-app-rules.conf";
         loadAppRules();
@@ -440,22 +441,18 @@ namespace fcitx {
 
         updateCharsetAction(event.inputContext());
 
-        auto* state = ic->propertyFor(&factory_);
-        // Chính ô này vừa rời đi và quay lại ngay (< 100 ms, cùng ngưỡng với nhánh surrvalid bên
-        // dưới) ⇒ đó là cú reset của Chromium X11 — nó rời ô rồi vào lại mỗi khi ô đổi chữ ngoài
-        // bộ gõ, kể cả do chính chữ Lotus vừa giao — không phải người dùng đổi cửa sổ. Khi đó:
-        // lượt thay chữ đang dở thì làm tiếp, từ đang gõ thì giữ ("viê" + j phải ra "việ", không
-        // phải "viêj"). Phải quyết TRƯỚC setMode(), vì clearAllBuffers() trong đó xoá sạch.
-        const bool vuaRoiDi      = state->lastDeactivateTime_ > 0 && now_ms() - state->lastDeactivateTime_ < 100;
-        const bool noiLaiLuotXoa = vuaRoiDi && state->xoaBiNgatLuc_ > 0 && is_deleting_.load();
-        state->xoaBiNgatLuc_     = 0;
-        if (noiLaiLuotXoa) {
-            LOTUS_INFO("Resume interrupted replacement");
-        } else {
+        auto*      state = ic->propertyFor(&factory_);
+
+        const bool uinputMode         = isUinputMode(targetMode);
+        const bool focusBounce        = uinputMode && state->lastDeactivateTime_ > 0 && now_ms() - state->lastDeactivateTime_ < 100;
+        const bool resumeReplacement  = focusBounce && state->deletionInterruptedAt_ > 0 && is_deleting_.load();
+        state->deletionInterruptedAt_ = 0;
+
+        if (!resumeReplacement) {
             is_deleting_.store(false);
         }
 
-        if (vuaRoiDi) {
+        if (focusBounce) {
             realMode = targetMode;
             ic->updateUserInterface(UserInterfaceComponent::StatusArea);
             LOTUS_INFO("Focus bounce: keep word buffers");
@@ -475,7 +472,7 @@ namespace fcitx {
 
         state->waitAck_ = false;
         if (*config_.fixUinputWithAck) {
-            if (targetMode == LotusMode::Uinput || targetMode == LotusMode::Smooth || targetMode == LotusMode::Minecraft || targetMode == LotusMode::SuperSmooth) {
+            if (isUinputMode(targetMode)) {
 #if __cplusplus >= 202002L
                 std::ranges::transform(appName, appName.begin(), ::tolower);
 #else
@@ -498,7 +495,7 @@ namespace fcitx {
         } else if (surrvalid && !state->oldPreBuffer_.empty() && (now_ms() - state->lastDeactivateTime_) >= 100) {
             state->clearAllBuffers();
         }
-        if (!noiLaiLuotXoa) {
+        if (!resumeReplacement) {
             is_deleting_.store(false);
         }
         needEngineReset.store(false);
@@ -653,6 +650,8 @@ namespace fcitx {
                     setMode(selectedMode.value(), ic);
                     if (selectedMode == LotusMode::Emoji) {
                         state->updateEmojiPreedit();
+                    } else {
+                        showCycleModeNotification(selectedMode.value(), ic);
                     }
                 }
             }
@@ -790,12 +789,9 @@ namespace fcitx {
                 if (surrvalid && !state->oldPreBuffer_.empty())
                     state->clearAllBuffers();
             }
-            // Chromium trên X11 "reset" bộ gõ bằng cách rời ô rồi vào lại ngay (~5 ms) mỗi khi ô
-            // đổi chữ ngoài bộ gõ — ở thanh địa chỉ thì chính phím xoá của Lotus gây ra. Tắt cờ ở
-            // đây là vứt lượt thay chữ đang dở: xoá xong mà chữ mới không bao giờ tới ("tie" → "t").
-            // Giữ cờ, ghi thời điểm; activate() quyết định làm tiếp hay bỏ.
-            if (is_deleting_.load() && state->expected_backspaces_ > 0) {
-                state->xoaBiNgatLuc_ = now_ms();
+            const bool uinputMode = isUinputMode(realMode);
+            if (uinputMode && is_deleting_.load() && state->expected_backspaces_ > 0) {
+                state->deletionInterruptedAt_ = now_ms();
                 LOTUS_INFO("Replacement interrupted by focus out");
             } else {
                 is_deleting_.store(false);
@@ -811,25 +807,17 @@ namespace fcitx {
     void LotusEngine::refreshEngine() {
         if (!factory_.registered())
             return;
-        bool coCuaSoDangGo = false;
-        instance_->inputContextManager().foreach ([this, &coCuaSoDangGo](InputContext* ic) {
+        instance_->inputContextManager().foreach ([this](InputContext* ic) {
             auto* state = ic->propertyFor(&factory_);
             state->setEngine();
             if (ic->hasFocus()) {
-                // Đặt lại chế độ theo ĐÚNG luật của app đang gõ. Trước đây setEngine()
-                // ghi thẳng mặc định chung vào realMode nên nạp lại cấu hình là mất luật
-                // riêng của cửa sổ đang hoạt động.
+                // Re-resolve the focused window's rule; setEngine() must not
+                // reset it to the global mode.
                 setMode(getAppRule(getProgramName(ic)), ic);
                 state->reset();
-                coCuaSoDangGo = true;
             }
             return true;
         });
-        // Không có cửa sổ nào đang gõ thì không có luật riêng nào để theo; giữ mặc định
-        // chung như hành vi cũ. Lần focus kế tiếp activate() sẽ đặt lại cho đúng.
-        if (!coCuaSoDangGo) {
-            realMode = config_.mode.value();
-        }
     }
 
     void LotusEngine::refreshOption() {
@@ -1009,6 +997,8 @@ namespace fcitx {
                 if (mode == LotusMode::Emoji) {
                     auto* state = ic->propertyFor(&factory_);
                     state->updateEmojiPreedit();
+                } else {
+                    showCycleModeNotification(mode, ic);
                 }
             };
         };
