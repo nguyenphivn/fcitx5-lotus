@@ -275,8 +275,23 @@ int main(int argc, char* argv[]) {
     sigaction(SIGTERM, &sa, nullptr);
     sigaction(SIGINT, &sa, nullptr);
 
+    // Khoảng cách giữa hai phím xoá, mặc định 5 ms như cũ. Đặt LOTUS_BACKSPACE_GAP_MS để đổi mà
+    // không phải dựng lại mã; nhận 0..50, ngoài khoảng thì bỏ qua. Đo 12/09 trên Konsole (nhịp gõ
+    // 50 và 5 ms mỗi phím), ô soạn Edge và thanh địa chỉ Edge: mức 2 ms đều 8/8, không tệ hơn 5 ms.
+    int backspace_gap_ms = 5;
+    if (const char* g = std::getenv("LOTUS_BACKSPACE_GAP_MS"); g != nullptr && *g != '\0') {
+        char*      end = nullptr;
+        const long v   = std::strtol(g, &end, 10);
+        if (end != nullptr && *end == '\0' && v >= 0 && v <= 50) {
+            backspace_gap_ms = static_cast<int>(v);
+            LotusLogger::instance().info("Backspace gap set to " + std::to_string(backspace_gap_ms) + " ms");
+        } else {
+            LotusLogger::instance().warn("Ignoring invalid LOTUS_BACKSPACE_GAP_MS: " + std::string(g));
+        }
+    }
+
     while (g_running.load(std::memory_order_acquire)) {
-        int poll_timeout = (pending_backspaces > 0) ? 5 : -1;
+        int poll_timeout = (pending_backspaces > 0) ? backspace_gap_ms : -1;
         int ret          = poll(fds.data(), fds.size(), poll_timeout);
 
         if (ret < 0) {
